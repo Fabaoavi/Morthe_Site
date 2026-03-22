@@ -18,9 +18,9 @@ export default function Header() {
   const { color } = useDynamicColor();
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
   const [navExpanded, setNavExpanded] = useState(false);
+  const [ctaHovered, setCtaHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
-  // Close mobile menu on resize to desktop
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth >= 768) setMenuOpen(false);
@@ -29,7 +29,6 @@ export default function Header() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Prevent body scroll when menu is open
   useEffect(() => {
     document.body.style.overflow = menuOpen ? 'hidden' : '';
     return () => { document.body.style.overflow = ''; };
@@ -40,7 +39,7 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-50 w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-md dynamic-transition">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
+        <div className="flex h-16 items-center">
 
           {/* Mobile: Hamburger (left) */}
           <button
@@ -54,14 +53,14 @@ export default function Header() {
             <span className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 ${menuOpen ? '-rotate-45 -translate-y-[3px]' : ''}`} />
           </button>
 
-          {/* Desktop: Centered nav with logo in middle */}
+          {/* Desktop: Centered nav — absolute positioning for true center */}
           <div
-            className="hidden md:flex items-center justify-center flex-1"
+            className="hidden md:flex items-center justify-center absolute left-1/2 -translate-x-1/2"
             onMouseEnter={() => setNavExpanded(true)}
             onMouseLeave={() => { setNavExpanded(false); setHoveredLink(null); }}
           >
-            {/* Left links — slide in from center */}
-            <nav className="flex items-center gap-6 overflow-hidden">
+            {/* Left links */}
+            <nav className="flex items-center gap-7 overflow-hidden">
               {leftLinks.map((link, i) => (
                 <Link
                   key={link.href}
@@ -81,23 +80,20 @@ export default function Header() {
               ))}
             </nav>
 
-            {/* Center logo */}
-            <Link
-              href="/"
-              className="mx-6 flex-shrink-0 relative group"
-            >
+            {/* Center logo — larger */}
+            <Link href="/" className="mx-8 flex-shrink-0">
               <img
                 src="/Logo_Branca.png"
                 alt="Morthe"
-                className="h-9 w-auto object-contain transition-all duration-500 ease-out"
+                className="h-11 w-auto object-contain transition-all duration-500 ease-out"
                 style={{
-                  filter: navExpanded ? `drop-shadow(0 0 8px ${color})` : 'none',
+                  filter: navExpanded ? `drop-shadow(0 0 10px ${color})` : 'none',
                 }}
               />
             </Link>
 
-            {/* Right links — slide in from center */}
-            <nav className="flex items-center gap-6 overflow-hidden">
+            {/* Right links */}
+            <nav className="flex items-center gap-7 overflow-hidden">
               {rightLinks.map((link, i) => (
                 <Link
                   key={link.href}
@@ -119,29 +115,58 @@ export default function Header() {
           </div>
 
           {/* Mobile: Logo centered */}
-          <Link href="/" className="md:hidden flex-shrink-0">
+          <Link href="/" className="md:hidden flex-1 flex justify-center">
             <img
               src="/Logo_Branca.png"
               alt="Morthe"
-              className="h-8 w-auto object-contain"
+              className="h-9 w-auto object-contain"
             />
           </Link>
 
-          {/* CTA Button (always visible) */}
-          <Link
-            href="/cliente"
-            className="inline-flex h-9 items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 border border-transparent"
-            style={{
-              backgroundColor: isHovered('/cliente') ? color : '#ffffff',
-              color: '#09090b',
-              borderColor: isHovered('/cliente') ? color : 'transparent',
-              boxShadow: isHovered('/cliente') ? `0 4px 20px -5px ${color}` : 'none'
-            }}
-            onMouseEnter={() => setHoveredLink('/cliente')}
-            onMouseLeave={() => setHoveredLink(null)}
+          {/* CTA — user icon, pushed to far right */}
+          <div
+            className="ml-auto relative"
+            onMouseEnter={() => setCtaHovered(true)}
+            onMouseLeave={() => setCtaHovered(false)}
           >
-            Área do Cliente
-          </Link>
+            <Link
+              href="/cliente"
+              className="inline-flex items-center gap-2 h-9 justify-center rounded-full transition-all duration-400 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 border border-zinc-700 hover:border-zinc-500"
+              style={{
+                padding: ctaHovered ? '0 16px 0 10px' : '0 10px',
+                backgroundColor: ctaHovered ? color : 'transparent',
+                borderColor: ctaHovered ? color : undefined,
+                boxShadow: ctaHovered ? `0 4px 20px -5px ${color}` : 'none',
+              }}
+            >
+              {/* User icon */}
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={ctaHovered ? '#09090b' : '#d4d4d8'}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="transition-colors duration-300 flex-shrink-0"
+              >
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+              {/* Label — expands on hover */}
+              <span
+                className="text-sm font-medium whitespace-nowrap overflow-hidden transition-all duration-400 ease-out"
+                style={{
+                  maxWidth: ctaHovered ? '120px' : '0px',
+                  opacity: ctaHovered ? 1 : 0,
+                  color: ctaHovered ? '#09090b' : '#d4d4d8',
+                }}
+              >
+                Área do Cliente
+              </span>
+            </Link>
+          </div>
         </div>
       </div>
 
