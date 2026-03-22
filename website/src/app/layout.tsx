@@ -15,8 +15,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Morthe Site",
-  description: "Advanced Technological Dark Mode Design",
+  title: "Morthe — Criatividade & Tecnologia",
+  description: "Agência focada em experiências digitais com design imersivo, dark mode tecnológico e alta performance.",
 };
 
 export default function RootLayout({
@@ -25,9 +25,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="pt-BR" className="dark scroll-smooth">
+    <html lang="pt-BR" className={`dark scroll-smooth ${geistSans.variable} ${geistMono.variable}`}>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-zinc-950 text-zinc-50 min-h-screen flex flex-col`}
+        className="antialiased bg-zinc-950 text-zinc-50 min-h-screen flex flex-col"
       >
         <DynamicColorProvider>
           <Header />

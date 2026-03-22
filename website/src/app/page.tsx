@@ -17,7 +17,7 @@ export default function Home() {
       <PortfolioGrid />
 
       {/* Adding backdrop layers natively to lower sections to keep text readable against potentially bright slideshows */}
-      <section id="servicos" className="w-full max-w-6xl mx-auto py-24 border-t border-zinc-900/50 bg-zinc-950/80 backdrop-blur-sm relative z-10 px-4 sm:px-6">
+      <section id="servicos" className="w-full max-w-6xl mx-auto py-24 border-t border-zinc-900/50 bg-zinc-950/80 backdrop-blur-sm relative z-10 px-4 sm:px-6 scroll-mt-20">
         <h2 className="text-3xl font-bold text-white mb-12 text-center md:text-left">Serviços</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
           <div className="p-8 rounded-2xl bg-zinc-900/40 border border-zinc-800/50 backdrop-blur-md">
@@ -31,7 +31,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section id="quem-somos" className="w-full max-w-6xl mx-auto py-24 border-t border-zinc-900/50 bg-zinc-950/90 backdrop-blur-md relative z-10 px-4 sm:px-6">
+      <section id="quem-somos" className="w-full max-w-6xl mx-auto py-24 border-t border-zinc-900/50 bg-zinc-950/90 backdrop-blur-md relative z-10 px-4 sm:px-6 scroll-mt-20">
         <div className="flex flex-col items-center text-center">
           <h2 className="text-4xl font-bold text-white mb-8">Quem Somos</h2>
           <p className="text-zinc-400 max-w-3xl text-lg md:text-xl leading-relaxed">

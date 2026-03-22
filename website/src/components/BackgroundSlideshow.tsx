@@ -27,17 +27,25 @@ export default function BackgroundSlideshow({
   // Fetch images from our FastAPI backend
   useEffect(() => {
     async function fetchImages() {
+      const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+      const url = `${API}/api/destaques`;
+      console.log("[Slideshow] Fetching from:", url);
       try {
-        const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-        const response = await fetch(`${API}/api/destaques`);
+        const response = await fetch(url);
+        console.log("[Slideshow] Response status:", response.status);
         if (response.ok) {
           const data: ImageHighlight[] = await response.json();
+          console.log("[Slideshow] Received", data.length, "images:", data.map(d => d.imageUrl));
           if (data && data.length > 0) {
             setImages(data);
+          } else {
+            console.warn("[Slideshow] API retornou array vazio. Verifique /api/destaques/status");
           }
+        } else {
+          console.error("[Slideshow] API error:", response.status, response.statusText);
         }
       } catch (error) {
-        console.error("Failed to fetch slideshow images from API:", error);
+        console.error("[Slideshow] Fetch failed:", error, "— URL tentada:", url);
       } finally {
         setIsLoading(false);
       }
@@ -121,9 +129,12 @@ export default function BackgroundSlideshow({
         >
           {/* We use standard img to easily deal with external Google Drive URLs instead of Next.js Image component */}
           <img
-            src={image.imageUrl.startsWith('/') ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${image.imageUrl}` : image.imageUrl}
+            src={image.imageUrl.startsWith('/') ? `${(process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "")}${image.imageUrl}` : image.imageUrl}
             alt={`Background slide ${index + 1}`}
-            className="w-full h-full object-cover object-center scale-105" // Slight scale to avoid edge clipping during transitions/blur
+            className="w-full h-full object-cover object-center scale-105"
+            onError={(e) => {
+              console.error("[Slideshow] Falha ao carregar imagem:", (e.target as HTMLImageElement).src);
+            }}
           />
         </div>
       ))}
