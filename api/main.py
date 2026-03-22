@@ -133,29 +133,33 @@ def sync_client_thumbnails(client: dict):
             if os.path.exists(sm_path) and os.path.exists(md_path):
                 return True  # já em cache
 
-            request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
-            fh = io.BytesIO()
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                _, done = downloader.next_chunk()
-            fh.seek(0)
+            try:
+                request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                fh.seek(0)
 
-            original = Image.open(fh).convert("RGBA")
+                original = Image.open(fh).convert("RGBA")
 
-            if not os.path.exists(sm_path):
-                sm = original.copy()
-                sm.thumbnail((400, 400), Image.LANCZOS)
-                sm = _apply_watermark(sm)
-                sm.convert("RGB").save(sm_path, "WEBP", quality=82, method=4)
+                if not os.path.exists(sm_path):
+                    sm = original.copy()
+                    sm.thumbnail((400, 400), Image.LANCZOS)
+                    sm = _apply_watermark(sm)
+                    sm.convert("RGB").save(sm_path, "WEBP", quality=82, method=4)
 
-            if not os.path.exists(md_path):
-                md = original.copy()
-                md.thumbnail((900, 900), Image.LANCZOS)
-                md = _apply_watermark(md)
-                md.convert("RGB").save(md_path, "WEBP", quality=88, method=4)
+                if not os.path.exists(md_path):
+                    md = original.copy()
+                    md.thumbnail((900, 900), Image.LANCZOS)
+                    md = _apply_watermark(md)
+                    md.convert("RGB").save(md_path, "WEBP", quality=88, method=4)
 
-            return True
+                return True
+            except Exception as e:
+                print(f"[SYNC ERROR] Arquivo {file_name} falhou: {e}")
+                return False
 
         # ── Sync galeria principal ────────────────────────────────────
         query_gallery = (
@@ -1147,7 +1151,7 @@ def perform_sync():
             elif "webp" in f_mime:
                 ext = ".webp"
 
-            local_filename = f"{f_id}{ext}"
+            local_filename = f"{f_id}.webp"
             local_filepath = os.path.join(SYNC_DIR, local_filename)
             local_url = f"/destaques_sync/{local_filename}"
 
@@ -1155,40 +1159,48 @@ def perform_sync():
                 new_data.append(existing_data[f_id])
                 continue
 
-            print(f"[SYNC] Baixando: {f_name} ({f_id})")
-            request = service.files().get_media(fileId=f_id)
-            fh = io.BytesIO()
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                _, done = downloader.next_chunk()
+            print(f"[SYNC DESTAQUES] Baixando e convertendo: {f_name} ({f_id})")
+            try:
+                request = service.files().get_media(fileId=f_id)
+                fh = io.BytesIO()
+                downloader = MediaIoBaseDownload(fh, request)
+                done = False
+                while not done:
+                    _, done = downloader.next_chunk()
+                fh.seek(0)
 
-            with open(local_filepath, "wb") as f:
-                f.write(fh.getvalue())
+                # Converter para WebP e Redimensionar para max 1920px
+                with Image.open(fh) as img:
+                    img = img.convert("RGB")
+                    img.thumbnail((1920, 1920), Image.LANCZOS)
+                    img.save(local_filepath, "WEBP", quality=85, method=4)
 
-            color_primary = ""
-            color_secondary = ""
-            if "thumbnailLink" in item:
-                try:
-                    thumb_res = requests.get(item["thumbnailLink"], timeout=5)
-                    if thumb_res.status_code == 200:
-                        thumb_fh = io.BytesIO(thumb_res.content)
-                        ct = ColorThief(thumb_fh)
-                        palette = ct.get_palette(color_count=3, quality=1)
-                        if palette and len(palette) >= 2:
-                            color_primary = rgb_to_hex(palette[0])
-                            color_secondary = rgb_to_hex(palette[1])
-                except Exception as e:
-                    print(f"[-] Falha na extração de cor: {e}")
+                color_primary = ""
+                color_secondary = ""
+                if "thumbnailLink" in item:
+                    try:
+                        thumb_res = requests.get(item["thumbnailLink"], timeout=5)
+                        if thumb_res.status_code == 200:
+                            thumb_fh = io.BytesIO(thumb_res.content)
+                            ct = ColorThief(thumb_fh)
+                            palette = ct.get_palette(color_count=3, quality=1)
+                            if palette and len(palette) >= 2:
+                                color_primary = rgb_to_hex(palette[0])
+                                color_secondary = rgb_to_hex(palette[1])
+                    except Exception as e:
+                        print(f"[-] Falha na extração de cor: {e}")
 
-            new_data.append(
-                {
-                    "id": f_id,
-                    "imageUrl": local_url,
-                    "colorPrimary": color_primary,
-                    "colorSecondary": color_secondary,
-                }
-            )
+                new_data.append(
+                    {
+                        "id": f_id,
+                        "imageUrl": local_url,
+                        "colorPrimary": color_primary,
+                        "colorSecondary": color_secondary,
+                    }
+                )
+            except Exception as e:
+                print(f"[SYNC DESTAQUES ERROR] Falha ao processar {f_name}: {e}")
+
 
         for local_file in os.listdir(SYNC_DIR):
             if local_file.endswith(".json"):
