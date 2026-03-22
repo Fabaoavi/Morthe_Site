@@ -5,19 +5,19 @@ const portfolioItems = [
     id: 1,
     title: 'Projeto Alpha',
     category: 'Identidade Visual',
-    imageSrc: '/destaque-1.jpg',
+    imageSrc: '/logo_orange.svg',
   },
   {
     id: 2,
     title: 'Projeto Beta',
     category: 'Interface UI/UX',
-    imageSrc: '/destaque-2.jpg',
+    imageSrc: '/logo_orange.svg',
   },
   {
     id: 3,
     title: 'Projeto Gamma',
     category: 'Desenvolvimento Web',
-    imageSrc: '/destaque-3.jpg',
+    imageSrc: '/logo_orange.svg',
   },
 ];
 

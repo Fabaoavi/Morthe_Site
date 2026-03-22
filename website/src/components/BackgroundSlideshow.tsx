@@ -121,7 +121,7 @@ export default function BackgroundSlideshow({
         >
           {/* We use standard img to easily deal with external Google Drive URLs instead of Next.js Image component */}
           <img
-            src={image.imageUrl}
+            src={image.imageUrl.startsWith('/') ? `${process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"}${image.imageUrl}` : image.imageUrl}
             alt={`Background slide ${index + 1}`}
             className="w-full h-full object-cover object-center scale-105" // Slight scale to avoid edge clipping during transitions/blur
           />
