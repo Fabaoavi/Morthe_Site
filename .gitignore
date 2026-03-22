@@ -1,30 +1,34 @@
-# ─── Secrets ─────────────────────────────────────────────────────────────────
-*.json
-!package.json
-!package-lock.json
-!tsconfig.json
-!vercel.json
-
-# ─── Python ──────────────────────────────────────────────────────────────────
+# ─── Python venv & cache ─────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 venv/
+env/
+
+# ─── Secrets — NUNCA subir para o git! ───────────────────────────────────────
+*service-account*.json
+morthe-*.json
+.env
+.env.local
+.env.production
+api/.env
+
+# ─── Database local ───────────────────────────────────────────────────────────
 *.db
 *.db-wal
 *.db-shm
 
-# ─── Next.js ─────────────────────────────────────────────────────────────────
+# ─── Next.js build ───────────────────────────────────────────────────────────
 website/.next/
+website/out/
 website/node_modules/
-website/.env.local
-website/.env.production
 
-# ─── API env & cache ─────────────────────────────────────────────────────────
-api/.env
+# ─── Cache de thumbnails (regenerado pelo backend) ───────────────────────────
+website/public/thumb_cache/
 api/thumb_cache/
 
 # ─── OS ──────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
