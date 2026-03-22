@@ -28,7 +28,8 @@ export default function BackgroundSlideshow({
   useEffect(() => {
     async function fetchImages() {
       try {
-        const response = await fetch("http://localhost:8000/api/destaques");
+        const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+        const response = await fetch(`${API}/api/destaques`);
         if (response.ok) {
           const data: ImageHighlight[] = await response.json();
           if (data && data.length > 0) {

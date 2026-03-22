@@ -294,8 +294,8 @@ export default function AdminDashboard() {
                     <span>🖼 Máx: {c.max_selections}</span>
                     <span>🔁 Reaperturas: {c.selection_unlock_count ?? 0}/3</span>
                     {c.drive_gallery_url && <a href={c.drive_gallery_url} target="_blank" rel="noreferrer" style={{ color: "#60a5fa" }}>📁 Drive</a>}
-                    <span onClick={() => copyToClipboard(`http://localhost:3001/cliente/${c.code}`, `link-${c.id}`)} style={{ cursor: "pointer", color: "#555" }}>
-                      🔗 {copied === `link-${c.id}` ? "✓ copiado!" : `localhost:3001/cliente/${c.code}`}
+                    <span onClick={() => copyToClipboard(`${window.location.origin}/cliente/${c.code}`, `link-${c.id}`)} style={{ cursor: "pointer", color: "#555" }}>
+                      🔗 {copied === `link-${c.id}` ? "✓ copiado!" : `${window.location.origin}/cliente/${c.code}`}
                     </span>
                   </div>
                   {c.notes && <p style={{ color: "#555", fontSize: 13, marginTop: 4 }}>💬 {c.notes}</p>}
