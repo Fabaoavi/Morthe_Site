@@ -38,14 +38,17 @@ ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "M0rTh3")
 SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 # ── Dirs de dados ───────────────────────────────────────────────────────────────
-# Em produção (Render): DATA_DIR=/data  (persistent disk)
-# Em desenvolvimento: usa api/ local
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# API_DIR = pasta onde main.py está (sempre certo, independente do cwd)
+API_DIR  = os.path.dirname(os.path.abspath(__file__))
+# BASE_DIR usado apenas localmente para resolver caminhos do monorepo
+BASE_DIR = os.path.dirname(API_DIR)  # pai de api/  (ex: Morthe_Site/)
 DRIVE_FOLDER_ID = os.environ.get("DRIVE_FOLDER_ID", "1fQzGW9Kg4-kG3SqMsMbOBNF3AWJ2SGeI")
-DATA_DIR = os.environ.get("DATA_DIR", os.path.join(BASE_DIR, "api"))
 
-# Credenciais da Service Account
-# Em produção, o arquivo é copiado para DATA_DIR via deploy ou env var GOOGLE_SA_JSON
+# Em produção (Railway): DATA_DIR=/data  (persistent volume)
+# Em desenvolvimento: usa api/ local
+DATA_DIR = os.environ.get("DATA_DIR", API_DIR)
+
+# Credenciais da Service Account (env var GOOGLE_SA_JSON tem prioridade)
 SERVICE_ACCOUNT_PATH = os.environ.get(
     "GOOGLE_SA_PATH",
     os.path.join(BASE_DIR, "website", "public", "morthe-83002885203b.json"),
@@ -55,19 +58,20 @@ SERVICE_ACCOUNT_PATH = os.environ.get(
 THUMB_CACHE_DIR = os.path.join(DATA_DIR, "thumb_cache")
 os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
 
-# Pasta legada (slideshow da home) — continua local
-SYNC_DIR = os.path.join(BASE_DIR, "website", "public", "destaques_sync")
+# Slideshow da home — em produção fica em DATA_DIR para persistir
+SYNC_DIR      = os.path.join(DATA_DIR, "destaques_sync")
 METADATA_FILE = os.path.join(SYNC_DIR, "metadata.json")
 os.makedirs(SYNC_DIR, exist_ok=True)
 
 
 def find_watermark() -> Optional[str]:
-    """Procura o arquivo de marca d'água em public/ com qualquer extensão de imagem."""
-    public_dir = os.path.join(BASE_DIR, "website", "public")
-    for ext in ("png", "webp", "jpg", "jpeg", "PNG", "WEBP", "JPG", "JPEG"):
-        path = os.path.join(public_dir, f"marcadagua.{ext}")
-        if os.path.exists(path):
-            return path
+    """Procura a marca d'água em DATA_DIR ou na pasta local api/."""
+    search_dirs = [DATA_DIR, API_DIR, os.path.join(BASE_DIR, "website", "public")]
+    for d in search_dirs:
+        for ext in ("png", "webp", "jpg", "jpeg", "PNG", "WEBP", "JPG", "JPEG"):
+            path = os.path.join(d, f"marcadagua.{ext}")
+            if os.path.exists(path):
+                return path
     return None
 
 
@@ -209,15 +213,18 @@ app = FastAPI(title="Morthe API", version="2.0.0")
 # Serve thumbnails diretamente via FastAPI (produção: backend é separado do Next.js)
 app.mount("/thumb_cache", StaticFiles(directory=THUMB_CACHE_DIR), name="thumb_cache")
 
-# CORS: permite frontend local e produção
-_FRONTEND_URL = os.environ.get("FRONTEND_URL", "")
-_ALLOWED_ORIGINS = ["http://localhost:3000", "http://localhost:3001"]
+# CORS: allow_origin_regex aceita:
+#   - localhost (dev)
+#   - qualquer subdomínio *.vercel.app (previews)
+#   - FRONTEND_URL customizado (ex: https://morthe.pro)
+_FRONTEND_URL   = os.environ.get("FRONTEND_URL", "").rstrip("/")
+_CORS_PATTERN   = r"http://localhost:\d+|https://[\w-]+\.vercel\.app"
 if _FRONTEND_URL:
-    _ALLOWED_ORIGINS.append(_FRONTEND_URL.rstrip("/"))
+    _CORS_PATTERN += "|" + re.escape(_FRONTEND_URL)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_ALLOWED_ORIGINS,
+    allow_origin_regex=_CORS_PATTERN,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
