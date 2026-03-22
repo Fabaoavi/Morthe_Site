@@ -5,28 +5,24 @@ import { useState } from 'react';
 
 export default function HeroSection() {
   const [isHovered, setIsHovered] = useState(false);
+  const [btnHovered, setBtnHovered] = useState(false);
 
   return (
-    <section 
-      id="inicio" 
+    <section
+      id="inicio"
       className="relative w-full min-h-[90vh] flex items-center justify-center overflow-hidden border-b border-zinc-900/50"
     >
-      {/* 
-        The static radial background and texture were removed. 
-        The global BackgroundSlideshow will serve as the actual background now.
-      */}
-
       {/* Hero Content */}
       <div className="relative z-10 w-full max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col items-center text-center">
-        
+
         {/* H1 Wrapper for Bloom Effect */}
-        <div 
+        <div
           className="relative inline-block mb-6"
           onMouseEnter={() => setIsHovered(true)}
           onMouseLeave={() => setIsHovered(false)}
         >
           {/* Dynamic Bloom / Glow Layer */}
-          <div 
+          <div
             className="absolute left-[50%] top-[50%] w-[120%] h-[150%] pointer-events-none transition-all duration-700 ease-out z-[-1]"
             style={{
               background: 'radial-gradient(ellipse at center, var(--dynamic-color) 0%, transparent 60%)',
@@ -41,15 +37,15 @@ export default function HeroSection() {
             Projetando o futuro.
           </h1>
         </div>
-        
+
         <p className="text-lg md:text-xl text-zinc-300 mb-10 max-w-2xl font-light drop-shadow">
-          Construímos experiências digitais com altíssima performance, focadas no essencial, 
+          Construímos experiências digitais com altíssima performance, focadas no essencial,
           unindo design imersivo ao dark mode tecnológico.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-          <Link 
-            href="#reuniao" 
+          <Link
+            href="#reuniao"
             className="inline-flex h-12 items-center justify-center rounded-md bg-white px-8 text-sm font-semibold text-zinc-950 shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 active:scale-95 hover:brightness-90"
             style={{
               boxShadow: isHovered ? '0 0 30px -5px var(--dynamic-color)' : 'none',
@@ -58,22 +54,16 @@ export default function HeroSection() {
           >
             Agendar Reunião
           </Link>
-          <Link 
-            href="#projetos" 
-            className="inline-flex h-12 items-center justify-center rounded-md border text-sm font-semibold px-8 shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 active:scale-95 bg-zinc-950/40 backdrop-blur-sm"
+          <Link
+            href="#destaques"
+            className="inline-flex h-12 items-center justify-center rounded-md border text-sm font-semibold px-8 shadow-sm transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 active:scale-95 backdrop-blur-sm"
             style={{
               borderColor: isHovered ? 'var(--dynamic-color)' : 'rgba(255,255,255,0.2)',
-              color: isHovered ? 'var(--dynamic-color)' : '#ffffff',
-              transition: 'border-color 0.5s ease-out, color 0.5s ease-out, background-color 0.15s ease-in-out'
+              color: btnHovered ? '#000000' : (isHovered ? 'var(--dynamic-color)' : '#ffffff'),
+              backgroundColor: btnHovered ? 'var(--dynamic-color)' : 'rgba(9, 9, 11, 0.4)',
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = 'var(--dynamic-color)';
-              e.currentTarget.style.color = '#000000'; // high contrast on hover fill
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = 'rgba(9, 9, 11, 0.4)'; // back to zinc-950/40
-              e.currentTarget.style.color = isHovered ? 'var(--dynamic-color)' : '#ffffff';
-            }}
+            onMouseEnter={() => setBtnHovered(true)}
+            onMouseLeave={() => setBtnHovered(false)}
           >
             Ver Projetos
           </Link>

@@ -1100,10 +1100,12 @@ def perform_sync():
     Legado: Sincroniza imagens do Google Drive com o diretório local
     public/destaques_sync para o slideshow da home.
     """
-    print("[SYNC] Iniciando sincronização 1:1 do Google Drive (destaques)...")
+    print(f"[SYNC] Iniciando sincronização destaques — DRIVE_FOLDER_ID={DRIVE_FOLDER_ID}")
+    print(f"[SYNC] SYNC_DIR={SYNC_DIR}, existe={os.path.exists(SYNC_DIR)}")
 
     try:
         service = get_drive_service()
+        print("[SYNC] Autenticação Google Drive OK.")
 
         query = (
             f"'{DRIVE_FOLDER_ID}' in parents "
@@ -1119,6 +1121,7 @@ def perform_sync():
         ).execute()
 
         items = results.get("files", [])
+        print(f"[SYNC] Encontradas {len(items)} imagens na pasta do Drive.")
 
         existing_data = {}
         if os.path.exists(METADATA_FILE):
@@ -1212,6 +1215,61 @@ def perform_sync():
         print(f"[SYNC ERROR] {str(e)}")
 
 
+@app.get("/api/destaques/status")
+async def get_destaques_status():
+    """
+    Endpoint de diagnóstico para debug do slideshow.
+    Retorna estado do sync, metadata, e config.
+    """
+    metadata_exists = os.path.exists(METADATA_FILE)
+    sync_dir_exists = os.path.exists(SYNC_DIR)
+    image_count = 0
+    metadata_content = []
+    sync_files = []
+
+    if sync_dir_exists:
+        sync_files = [f for f in os.listdir(SYNC_DIR) if not f.endswith(".json")]
+
+    if metadata_exists:
+        try:
+            with open(METADATA_FILE, "r", encoding="utf-8") as f:
+                metadata_content = json.load(f)
+                image_count = len(metadata_content)
+        except Exception as e:
+            metadata_content = {"error": str(e)}
+
+    # Testar acesso ao Drive
+    drive_ok = False
+    drive_error = None
+    drive_file_count = 0
+    try:
+        service = get_drive_service()
+        results = service.files().list(
+            q=f"'{DRIVE_FOLDER_ID}' in parents and trashed=false",
+            pageSize=5,
+            fields="files(id, name)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+        drive_file_count = len(results.get("files", []))
+        drive_ok = True
+    except Exception as e:
+        drive_error = str(e)
+
+    return {
+        "drive_folder_id": DRIVE_FOLDER_ID,
+        "drive_accessible": drive_ok,
+        "drive_error": drive_error,
+        "drive_files_found": drive_file_count,
+        "sync_dir": SYNC_DIR,
+        "sync_dir_exists": sync_dir_exists,
+        "sync_files_on_disk": sync_files,
+        "metadata_file_exists": metadata_exists,
+        "metadata_image_count": image_count,
+        "metadata": metadata_content,
+    }
+
+
 @app.get("/api/destaques", response_model=List[ImageHighlight])
 async def get_destaques(background_tasks: BackgroundTasks):
     """
@@ -1224,8 +1282,12 @@ async def get_destaques(background_tasks: BackgroundTasks):
     try:
         with open(METADATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except Exception:
+    except Exception as e:
+        print(f"[API] Erro ao ler metadata.json: {e}")
         data = []
+
+    if not data:
+        print(f"[API] AVISO: metadata.json vazio ou inexistente. DRIVE_FOLDER_ID={DRIVE_FOLDER_ID}")
 
     background_tasks.add_task(perform_sync)
     return data
