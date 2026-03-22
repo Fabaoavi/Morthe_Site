@@ -212,6 +212,7 @@ app = FastAPI(title="Morthe API", version="2.0.0")
 
 # Serve thumbnails diretamente via FastAPI (produção: backend é separado do Next.js)
 app.mount("/thumb_cache", StaticFiles(directory=THUMB_CACHE_DIR), name="thumb_cache")
+app.mount("/destaques_sync", StaticFiles(directory=SYNC_DIR), name="destaques_sync")
 
 # CORS: allow_origin_regex aceita:
 #   - localhost (dev)
