@@ -4,9 +4,12 @@ import Link from 'next/link';
 import { useDynamicColor } from './DynamicColorProvider';
 import { useState, useEffect } from 'react';
 
-const navLinks = [
+const leftLinks = [
   { href: '/', label: 'Início' },
   { href: '#destaques', label: 'Destaques' },
+];
+
+const rightLinks = [
   { href: '#servicos', label: 'Serviços' },
   { href: '#quem-somos', label: 'Quem Somos' },
 ];
@@ -14,6 +17,7 @@ const navLinks = [
 export default function Header() {
   const { color } = useDynamicColor();
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
+  const [navExpanded, setNavExpanded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   // Close mobile menu on resize to desktop
@@ -37,75 +41,107 @@ export default function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-md dynamic-transition">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
-          {/* Logo */}
-          <div className="flex-shrink-0">
-            <Link href="/" className="flex items-center gap-2 shrink-0">
-              <img
-                src="/logo-header.png"
-                alt="Morthe"
-                className="h-8 w-auto object-contain"
-              />
-            </Link>
-          </div>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center gap-8">
-            {navLinks.map((link) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                className="text-sm font-medium transition-colors duration-300"
-                style={{ color: isHovered(link.href) ? color : '#d4d4d8' }}
-                onMouseEnter={() => setHoveredLink(link.href)}
-                onMouseLeave={() => setHoveredLink(null)}
-              >
-                {link.label}
-              </Link>
-            ))}
-          </nav>
+          {/* Mobile: Hamburger (left) */}
+          <button
+            onClick={() => setMenuOpen(!menuOpen)}
+            className="md:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md border border-zinc-700 hover:border-zinc-500 transition-colors"
+            aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
+            aria-expanded={menuOpen}
+          >
+            <span className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 ${menuOpen ? 'rotate-45 translate-y-[3px]' : ''}`} />
+            <span className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 my-[3px] ${menuOpen ? 'opacity-0' : ''}`} />
+            <span className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 ${menuOpen ? '-rotate-45 -translate-y-[3px]' : ''}`} />
+          </button>
 
-          {/* Desktop CTA + Mobile Hamburger */}
-          <div className="flex items-center gap-3">
-            {/* CTA Button (always visible) */}
+          {/* Desktop: Centered nav with logo in middle */}
+          <div
+            className="hidden md:flex items-center justify-center flex-1"
+            onMouseEnter={() => setNavExpanded(true)}
+            onMouseLeave={() => { setNavExpanded(false); setHoveredLink(null); }}
+          >
+            {/* Left links — slide in from center */}
+            <nav className="flex items-center gap-6 overflow-hidden">
+              {leftLinks.map((link, i) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-sm font-medium whitespace-nowrap transition-all duration-500 ease-out"
+                  style={{
+                    color: isHovered(link.href) ? color : '#d4d4d8',
+                    opacity: navExpanded ? 1 : 0,
+                    transform: navExpanded ? 'translateX(0)' : 'translateX(40px)',
+                    transitionDelay: navExpanded ? `${(leftLinks.length - 1 - i) * 60}ms` : '0ms',
+                  }}
+                  onMouseEnter={() => setHoveredLink(link.href)}
+                  onMouseLeave={() => setHoveredLink(null)}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
+
+            {/* Center logo */}
             <Link
-              href="/cliente"
-              className="inline-flex h-9 items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 border border-transparent"
-              style={{
-                backgroundColor: isHovered('/cliente') ? color : '#ffffff',
-                color: '#09090b',
-                borderColor: isHovered('/cliente') ? color : 'transparent',
-                boxShadow: isHovered('/cliente') ? `0 4px 20px -5px ${color}` : 'none'
-              }}
-              onMouseEnter={() => setHoveredLink('/cliente')}
-              onMouseLeave={() => setHoveredLink(null)}
+              href="/"
+              className="mx-6 flex-shrink-0 relative group"
             >
-              Área do Cliente
+              <img
+                src="/Logo_Branca.png"
+                alt="Morthe"
+                className="h-9 w-auto object-contain transition-all duration-500 ease-out"
+                style={{
+                  filter: navExpanded ? `drop-shadow(0 0 8px ${color})` : 'none',
+                }}
+              />
             </Link>
 
-            {/* Hamburger Button (mobile only) */}
-            <button
-              onClick={() => setMenuOpen(!menuOpen)}
-              className="md:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md border border-zinc-700 hover:border-zinc-500 transition-colors"
-              aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
-              aria-expanded={menuOpen}
-            >
-              <span
-                className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 ${
-                  menuOpen ? 'rotate-45 translate-y-[3px]' : ''
-                }`}
-              />
-              <span
-                className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 my-[3px] ${
-                  menuOpen ? 'opacity-0' : ''
-                }`}
-              />
-              <span
-                className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 ${
-                  menuOpen ? '-rotate-45 -translate-y-[3px]' : ''
-                }`}
-              />
-            </button>
+            {/* Right links — slide in from center */}
+            <nav className="flex items-center gap-6 overflow-hidden">
+              {rightLinks.map((link, i) => (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  className="text-sm font-medium whitespace-nowrap transition-all duration-500 ease-out"
+                  style={{
+                    color: isHovered(link.href) ? color : '#d4d4d8',
+                    opacity: navExpanded ? 1 : 0,
+                    transform: navExpanded ? 'translateX(0)' : 'translateX(-40px)',
+                    transitionDelay: navExpanded ? `${i * 60}ms` : '0ms',
+                  }}
+                  onMouseEnter={() => setHoveredLink(link.href)}
+                  onMouseLeave={() => setHoveredLink(null)}
+                >
+                  {link.label}
+                </Link>
+              ))}
+            </nav>
           </div>
+
+          {/* Mobile: Logo centered */}
+          <Link href="/" className="md:hidden flex-shrink-0">
+            <img
+              src="/Logo_Branca.png"
+              alt="Morthe"
+              className="h-8 w-auto object-contain"
+            />
+          </Link>
+
+          {/* CTA Button (always visible) */}
+          <Link
+            href="/cliente"
+            className="inline-flex h-9 items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition-all duration-300 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 border border-transparent"
+            style={{
+              backgroundColor: isHovered('/cliente') ? color : '#ffffff',
+              color: '#09090b',
+              borderColor: isHovered('/cliente') ? color : 'transparent',
+              boxShadow: isHovered('/cliente') ? `0 4px 20px -5px ${color}` : 'none'
+            }}
+            onMouseEnter={() => setHoveredLink('/cliente')}
+            onMouseLeave={() => setHoveredLink(null)}
+          >
+            Área do Cliente
+          </Link>
         </div>
       </div>
 
@@ -116,7 +152,7 @@ export default function Header() {
         }`}
       >
         <nav className="flex flex-col items-center justify-center gap-8 pt-16">
-          {navLinks.map((link, i) => (
+          {[...leftLinks, ...rightLinks].map((link, i) => (
             <Link
               key={link.href}
               href={link.href}
