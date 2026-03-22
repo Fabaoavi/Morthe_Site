@@ -214,10 +214,12 @@ export default function ClientDashboard() {
   }
 
   function thumbSrc(file: DriveFile) {
-    return file.cachedThumbUrl ?? file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+    if (file.cachedThumbUrl) return `${API}${file.cachedThumbUrl}`;
+    return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
   }
   function lightboxSrc(file: DriveFile) {
-    return file.cachedMdUrl ?? file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+    if (file.cachedMdUrl) return `${API}${file.cachedMdUrl}`;
+    return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
   }
 
   if (loading) return (
