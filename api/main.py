@@ -1102,15 +1102,8 @@ def perform_sync():
     """
     print("[SYNC] Iniciando sincronização 1:1 do Google Drive (destaques)...")
 
-    if not os.path.exists(SERVICE_ACCOUNT_PATH):
-        print(f"[SYNC ERROR] Credenciais ausentes em: {SERVICE_ACCOUNT_PATH}")
-        return
-
     try:
-        credentials = Credentials.from_service_account_file(
-            SERVICE_ACCOUNT_PATH, scopes=SCOPES
-        )
-        service = build("drive", "v3", credentials=credentials)
+        service = get_drive_service()
 
         query = (
             f"'{DRIVE_FOLDER_ID}' in parents "
