@@ -6,6 +6,7 @@ import os
 import io
 import re
 import json
+import base64
 import secrets
 import string
 import shutil
@@ -232,23 +233,44 @@ def rgb_to_hex(rgb):
     return "#{:02x}{:02x}{:02x}".format(rgb[0], rgb[1], rgb[2])
 
 
-def get_drive_service():
-    """Retorna um cliente autenticado da API do Google Drive."""
+def _load_service_account_info() -> dict:
+    """
+    Carrega as credenciais da Service Account.
+    Prioridade:
+      1. GOOGLE_SA_JSON env var (conteúdo JSON direto ou base64) — ideal para Railway/Vercel
+      2. Arquivo em GOOGLE_SA_PATH (desenvolvimento local)
+    """
+    sa_json = os.environ.get("GOOGLE_SA_JSON", "")
+    if sa_json:
+        try:
+            # Tenta decodificar base64 primeiro
+            decoded = base64.b64decode(sa_json).decode("utf-8")
+            return json.loads(decoded)
+        except Exception:
+            # Assume JSON puro
+            return json.loads(sa_json)
+
+    # Fallback: arquivo local
     if not os.path.exists(SERVICE_ACCOUNT_PATH):
         raise HTTPException(
             status_code=500,
-            detail=f"Credenciais da Service Account não encontradas em: {SERVICE_ACCOUNT_PATH}",
+            detail=f"Credenciais não encontradas. Defina GOOGLE_SA_JSON ou verifique GOOGLE_SA_PATH: {SERVICE_ACCOUNT_PATH}",
         )
-    creds = Credentials.from_service_account_file(SERVICE_ACCOUNT_PATH, scopes=SCOPES)
+    with open(SERVICE_ACCOUNT_PATH, "r") as f:
+        return json.load(f)
+
+
+def get_drive_service():
+    """Retorna um cliente autenticado da API do Google Drive."""
+    info = _load_service_account_info()
+    creds = Credentials.from_service_account_info(info, scopes=SCOPES)
     return build("drive", "v3", credentials=creds)
 
 
 def get_service_account_email() -> str:
-    """Lê o email da Service Account do arquivo de credenciais."""
+    """Lê o email da Service Account das credenciais."""
     try:
-        with open(SERVICE_ACCOUNT_PATH, "r") as f:
-            data = json.load(f)
-            return data.get("client_email", "email não encontrado")
+        return _load_service_account_info().get("client_email", "email não encontrado")
     except Exception:
         return "não foi possível ler o email"
 
