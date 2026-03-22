@@ -1,0 +1,570 @@
+"use client";
+
+import { useEffect, useState, useCallback, useRef } from "react";
+import { useParams } from "next/navigation";
+
+const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+
+interface DriveFile {
+  id: string;
+  name: string;
+  thumbnailUrl: string | null;
+  cachedThumbUrl: string | null;
+  cachedMdUrl: string | null;
+  proxyUrl: string;
+  selected?: boolean;
+  cached?: boolean;
+}
+
+interface ClientInfo {
+  name: string;
+  session_date: string | null;
+  status: string;
+  max_selections: number;
+  current_selections: number;
+  notes: string | null;
+}
+
+interface FinalizeInfo {
+  finalized: boolean;
+  can_reopen: boolean;
+  reopen_seconds_left: number;
+  unlock_count: number;
+  locked: boolean;
+}
+
+interface ConfirmModal {
+  open: boolean;
+  title: string;
+  message: string;
+  confirmLabel?: string;
+  onConfirm: () => void;
+}
+
+export default function ClientDashboard() {
+  const { code } = useParams<{ code: string }>();
+  const [info, setInfo] = useState<ClientInfo | null>(null);
+  const [gallery, setGallery] = useState<DriveFile[]>([]);
+  const [moodboard, setMoodboard] = useState<DriveFile[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [selectionsCount, setSelectionsCount] = useState(0);
+  const [maxSelections, setMaxSelections] = useState(20);
+  const [finalizeInfo, setFinalizeInfo] = useState<FinalizeInfo>({
+    finalized: false, can_reopen: false, reopen_seconds_left: 0,
+    unlock_count: 0, locked: false,
+  });
+  const [countdown, setCountdown] = useState(0);
+  const [finalizing, setFinalizing] = useState(false);
+  const [lightbox, setLightbox] = useState<{ file: DriveFile; idx: number } | null>(null);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModal>({
+    open: false, title: "", message: "", onConfirm: () => {},
+  });
+  const [toast, setToast] = useState("");
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(msg: unknown) {
+    const text = typeof msg === "string" ? msg : Array.isArray(msg) ? "Erro no servidor." : String(msg);
+    setToast(text);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 3000);
+  }
+
+  function openConfirm(title: string, message: string, onConfirm: () => void, confirmLabel = "Confirmar") {
+    setConfirmModal({ open: true, title, message, onConfirm, confirmLabel });
+  }
+
+  const selectedFiles = gallery.filter(f => f.selected);
+  const limitReached = selectionsCount >= maxSelections;
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [infoRes, galleryRes, moodRes] = await Promise.all([
+        fetch(`${API}/api/client/info?code=${code}`),
+        fetch(`${API}/api/client/gallery?code=${code}`),
+        fetch(`${API}/api/client/moodboard?code=${code}`),
+      ]);
+      const infoData: ClientInfo = await infoRes.json();
+      const galleryData = await galleryRes.json();
+      const moodData = await moodRes.json();
+
+      setInfo(infoData);
+      setGallery(galleryData.files || []);
+      setMoodboard(moodData.files || []);
+      setSelectionsCount(infoData.current_selections);
+      setMaxSelections(infoData.max_selections);
+      setFinalizeInfo(prev => ({ ...prev, finalized: infoData.status === "selection_done" }));
+
+      if (infoData.status === "syncing") setTimeout(fetchData, 8000);
+    } catch {
+      setError("Erro ao carregar. Verifique se a API está rodando em :8000");
+    } finally { setLoading(false); }
+  }, [code]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  // Countdown para reopen
+  useEffect(() => {
+    if (!finalizeInfo.finalized || !finalizeInfo.can_reopen || finalizeInfo.reopen_seconds_left <= 0) return;
+    setCountdown(finalizeInfo.reopen_seconds_left);
+    const interval = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) { clearInterval(interval); return 0; }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [finalizeInfo]);
+
+  // Teclado para lightbox
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightbox(null);
+      if (e.key === "ArrowRight" && lightbox.idx >= 0 && lightbox.idx < gallery.length - 1)
+        setLightbox({ file: gallery[lightbox.idx + 1], idx: lightbox.idx + 1 });
+      if (e.key === "ArrowLeft" && lightbox.idx > 0)
+        setLightbox({ file: gallery[lightbox.idx - 1], idx: lightbox.idx - 1 });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox, gallery]);
+
+  async function toggleSelect(file: DriveFile) {
+    if (finalizeInfo.finalized) return;
+    const isSelected = file.selected;
+    if (!isSelected && limitReached) return;
+
+    // Optimistic update
+    setGallery(g => g.map(f => f.id === file.id ? { ...f, selected: !isSelected } : f));
+    setSelectionsCount(c => c + (isSelected ? -1 : 1));
+
+    try {
+      const res = await fetch(`${API}/api/client/select`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code, image_id: file.id, image_name: file.name,
+          action: isSelected ? "remove" : "add",
+        }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      // Revert
+      setGallery(g => g.map(f => f.id === file.id ? { ...f, selected: isSelected } : f));
+      setSelectionsCount(c => c + (isSelected ? 1 : -1));
+      showToast("Erro ao atualizar seleção. Tente novamente.");
+    }
+  }
+
+  async function handleFinalize() {
+    openConfirm(
+      "Finalizar seleção?",
+      `Você selecionou ${selectionsCount} de ${maxSelections} fotos. Tem certeza que deseja finalizar? Você poderá reabrir em até 6 horas (máx. 3 vezes).`,
+      async () => {
+        setFinalizing(true);
+        try {
+          // code é enviado como query param (backend usa Query(...))
+          const res = await fetch(`${API}/api/client/finalize?code=${encodeURIComponent(code)}`, {
+            method: "POST",
+          });
+          const d = await res.json();
+          if (!res.ok) { showToast(d.detail || "Erro ao finalizar."); return; }
+          setFinalizeInfo({
+            finalized: true,
+            can_reopen: d.can_reopen,
+            reopen_seconds_left: d.reopen_seconds_left ?? 0,
+            unlock_count: 3 - (d.reopens_remaining ?? 3), // inferido a partir de reopens_remaining
+            locked: false,
+          });
+        } finally { setFinalizing(false); }
+      },
+      "Finalizar"
+    );
+  }
+
+  async function handleReopen() {
+    openConfirm(
+      "Reabrir seleção?",
+      `Você usará ${finalizeInfo.unlock_count + 1} de 3 tentativas. Após reabrir, terá ${Math.floor(countdown / 3600)}h para refazer a seleção.`,
+      async () => {
+        // code é enviado como query param (backend usa Query(...))
+        const res = await fetch(`${API}/api/client/reopen?code=${encodeURIComponent(code)}`, {
+          method: "POST",
+        });
+        const d = await res.json();
+        if (!res.ok) { showToast(d.detail || "Não foi possível reabrir."); return; }
+        setFinalizeInfo({
+          finalized: false, can_reopen: false,
+          reopen_seconds_left: d.reopen_seconds_left ?? 0,
+          unlock_count: d.reopens_used ?? 0,  // backend retorna reopens_used
+          locked: false,
+        });
+        fetchData();
+      },
+      "Reabrir"
+    );
+  }
+
+  function fmtTime(secs: number) {
+    const h = Math.floor(secs / 3600).toString().padStart(2, "0");
+    const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
+    const s = (secs % 60).toString().padStart(2, "0");
+    return `${h}:${m}:${s}`;
+  }
+
+  function thumbSrc(file: DriveFile) {
+    return file.cachedThumbUrl ?? file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+  }
+  function lightboxSrc(file: DriveFile) {
+    return file.cachedMdUrl ?? file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+  }
+
+  if (loading) return (
+    <div style={s.center}>
+      <div style={s.spinner} />
+    </div>
+  );
+  if (error) return <div style={s.center}><p style={{ color: "#f87171" }}>{error}</p></div>;
+  if (!info) return null;
+
+  return (
+    <div style={s.root}>
+      {/* ── Header ── */}
+      <header style={s.header}>
+        <div>
+          <h1 style={s.clientName}>{info.name}</h1>
+          {info.session_date && (
+            <p style={s.sessionDate}>
+              📅 {new Date(info.session_date + "T12:00:00").toLocaleDateString("pt-BR", { dateStyle: "long" })}
+            </p>
+          )}
+        </div>
+        <div style={s.counter}>
+          <span style={{ fontSize: 22, fontWeight: 700, color: limitReached ? "#4ade80" : "#fff" }}>
+            {selectionsCount}
+          </span>
+          <span style={{ color: "#555", fontSize: 14 }}>/{maxSelections}</span>
+        </div>
+      </header>
+
+      {/* ── Syncing banner ── */}
+      {info.status === "syncing" && (
+        <div style={s.banner}>⏳ Preparando sua galeria em alta qualidade... aguarde.</div>
+      )}
+
+      {/* ── Finalized banner ── */}
+      {finalizeInfo.finalized && (
+        <div style={{ ...s.banner, background: "#052e16", borderColor: "#166534", color: "#4ade80" }}>
+          ✓ Seleção finalizada!
+          {finalizeInfo.can_reopen && countdown > 0 && (
+            <span style={{ marginLeft: 12, fontSize: 13, color: "#86efac" }}>
+              Reabrir disponível por {fmtTime(countdown)}
+              {" "}({3 - finalizeInfo.unlock_count} tentativas restantes)
+              {" "}
+              <button style={s.reabrirBtn} onClick={handleReopen}>Reabrir</button>
+            </span>
+          )}
+          {(!finalizeInfo.can_reopen || countdown <= 0) && (
+            <span style={{ marginLeft: 12, fontSize: 13, color: "#555" }}>
+              {finalizeInfo.locked ? "Bloqueado pelo fotógrafo." : "Prazo para reabrir encerrado."}
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* ── Limit banner ── */}
+      {limitReached && !finalizeInfo.finalized && (
+        <div style={{ ...s.banner, background: "#0f172a", borderColor: "#1e40af", color: "#93c5fd" }}>
+          ✓ Você atingiu o limite de {maxSelections} fotos. Revise sua seleção nas miniaturas abaixo ou finalize.
+        </div>
+      )}
+
+      {info.notes && (
+        <div style={{ ...s.banner, background: "#1a1a1a", borderColor: "#333", color: "#888" }}>
+          💬 {info.notes}
+        </div>
+      )}
+
+      {/* ── Moodboard ── */}
+      {moodboard.length > 0 && (
+        <section style={s.section}>
+          <h2 style={s.sTitle}>Referências</h2>
+          <div style={s.grid}>
+            {moodboard.map(f => (
+              <div key={f.id} style={s.card} onClick={() => setLightbox({ file: f, idx: -1 })}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={thumbSrc(f)} alt={f.name} style={s.img} loading="lazy" />
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Gallery ── */}
+      <section style={{ ...s.section, paddingBottom: selectedFiles.length > 0 ? 160 : 24 }}>
+        <h2 style={s.sTitle}>Galeria</h2>
+        {gallery.length === 0 ? (
+          <p style={{ color: "#555", textAlign: "center", paddingTop: 40 }}>Nenhuma foto disponível ainda.</p>
+        ) : (
+          <div style={s.grid}>
+            {gallery.map((file, idx) => {
+              const isSelected = !!file.selected;
+              const showCheckbox = !finalizeInfo.finalized && (isSelected || !limitReached);
+              return (
+                <div
+                  key={file.id}
+                  style={{
+                    ...s.card,
+                    outline: isSelected ? "3px solid #fff" : "none",
+                    outlineOffset: -3,
+                  }}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={thumbSrc(file)}
+                    alt={file.name}
+                    style={s.img}
+                    loading="lazy"
+                    onClick={() => setLightbox({ file, idx })}
+                  />
+                  {showCheckbox && (
+                    <button
+                      style={{
+                        ...s.checkbox,
+                        background: isSelected ? "#fff" : "rgba(0,0,0,0.55)",
+                        border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.4)",
+                      }}
+                      onClick={e => { e.stopPropagation(); toggleSelect(file); }}
+                      aria-label={isSelected ? "Remover seleção" : "Selecionar"}
+                    >
+                      {isSelected && <span style={{ color: "#000", fontSize: 12, fontWeight: 700 }}>✓</span>}
+                    </button>
+                  )}
+                  {isSelected && !showCheckbox && (
+                    <div style={s.selectedBadge}>✓</div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* ── Fixed bottom selection bar ── */}
+      {selectedFiles.length > 0 && (
+        <div style={s.bottomBar}>
+          {/* Finalizar button + count */}
+          {!finalizeInfo.finalized && (
+            <div style={s.bottomBarTop}>
+              <span style={s.bottomBarCount}>{selectionsCount}/{maxSelections} selecionadas</span>
+              <button style={s.finalizeBtn} onClick={handleFinalize} disabled={finalizing}>
+                {finalizing ? "Finalizando..." : "Finalizar seleção →"}
+              </button>
+            </div>
+          )}
+          {/* Scrollable thumbnails */}
+          <div style={s.bottomBarThumbs}>
+            {selectedFiles.map(f => (
+              <div
+                key={f.id}
+                style={s.bottomThumb}
+                onClick={() => setLightbox({ file: f, idx: gallery.indexOf(f) })}
+                title={f.name}
+              >
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={thumbSrc(f)} alt={f.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                {!finalizeInfo.finalized && (
+                  <button
+                    style={s.removeBadge}
+                    onClick={e => { e.stopPropagation(); toggleSelect(f); }}
+                    aria-label="Remover"
+                  >✕</button>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Lightbox ── */}
+      {lightbox && (
+        <div style={s.lightboxOverlay} onClick={e => { if (e.target === e.currentTarget) setLightbox(null); }}>
+          <button style={s.lightboxClose} onClick={() => setLightbox(null)}>✕</button>
+
+          {lightbox.idx > 0 && (
+            <button style={{ ...s.lightboxNav, left: 12 }}
+              onClick={() => setLightbox({ file: gallery[lightbox.idx - 1], idx: lightbox.idx - 1 })}>‹</button>
+          )}
+          {lightbox.idx >= 0 && lightbox.idx < gallery.length - 1 && (
+            <button style={{ ...s.lightboxNav, right: 12 }}
+              onClick={() => setLightbox({ file: gallery[lightbox.idx + 1], idx: lightbox.idx + 1 })}>›</button>
+          )}
+
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightboxSrc(lightbox.file)} alt={lightbox.file.name} style={s.lightboxImg} />
+
+          <div style={s.lightboxFooter}>
+            <span style={{ color: "#ccc", fontSize: 14, flex: 1 }}>{lightbox.file.name}</span>
+            {!finalizeInfo.finalized && (
+              <button
+                style={{
+                  ...s.lightboxSelectBtn,
+                  background: lightbox.file.selected ? "transparent" : "#fff",
+                  color: lightbox.file.selected ? "#f87171" : "#000",
+                  border: lightbox.file.selected ? "1px solid #f87171" : "none",
+                }}
+                onClick={() => toggleSelect(lightbox.file)}
+                disabled={!lightbox.file.selected && limitReached}
+              >
+                {lightbox.file.selected ? "✕ Remover" : "+ Selecionar"}
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Custom confirm modal ── */}
+      {confirmModal.open && (
+        <div style={s.modalOverlay} onClick={e => { if (e.target === e.currentTarget) setConfirmModal(p => ({...p, open: false})); }}>
+          <div style={s.modalBox}>
+            <h3 style={s.modalTitle}>{confirmModal.title}</h3>
+            <p style={s.modalMsg}>{confirmModal.message}</p>
+            <div style={s.modalBtns}>
+              <button style={s.modalCancel} onClick={() => setConfirmModal(p => ({...p, open: false}))}>
+                Cancelar
+              </button>
+              <button style={s.modalConfirm} onClick={() => { setConfirmModal(p => ({...p, open: false})); confirmModal.onConfirm(); }}>
+                {confirmModal.confirmLabel ?? "Confirmar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Toast ── */}
+      {toast && <div style={s.toast}>{toast}</div>}
+    </div>
+  );
+}
+
+// ─── Styles (mobile-first, no Tailwind) ──────────────────────────────────────
+const s: Record<string, React.CSSProperties> = {
+  root:    { minHeight: "100vh", background: "#0a0a0a", color: "#fff", fontFamily: "inherit" },
+  center:  { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0a0a0a" },
+  spinner: { width: 36, height: 36, border: "3px solid #222", borderTop: "3px solid #fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
+
+  // Header
+  header:      { display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "20px 16px 12px", borderBottom: "1px solid #1a1a1a", gap: 12 },
+  clientName:  { fontSize: "clamp(18px, 5vw, 26px)", fontWeight: 700, marginBottom: 4 },
+  sessionDate: { fontSize: 13, color: "#555" },
+  counter:     { textAlign: "right", flexShrink: 0 },
+
+  // Banners
+  banner: { margin: "0 16px 2px", padding: "10px 14px", borderRadius: 8, border: "1px solid #333", fontSize: 13, background: "#1a1a0a", color: "#fbbf24" },
+  reabrirBtn: { background: "#fff", color: "#000", border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+
+  // Sections
+  section: { padding: "20px 16px" },
+  sTitle:  { fontSize: 13, fontWeight: 600, letterSpacing: "0.08em", color: "#555", textTransform: "uppercase" as const, marginBottom: 14 },
+
+  // Grid
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(140px, 44vw), 1fr))",
+    gap: 8,
+  },
+  card: { position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#111", cursor: "pointer" },
+  img:  { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+
+  // Checkbox
+  checkbox: { position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s" },
+  selectedBadge: { position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#000" },
+
+  // Bottom bar
+  bottomBar: {
+    position: "fixed", bottom: 0, left: 0, right: 0,
+    background: "rgba(10,10,10,0.97)",
+    backdropFilter: "blur(16px)",
+    borderTop: "1px solid #222",
+    zIndex: 50,
+    paddingBottom: "env(safe-area-inset-bottom)",
+  },
+  bottomBarTop: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px 6px", gap: 10 },
+  bottomBarCount: { color: "#888", fontSize: 13, whiteSpace: "nowrap" as const },
+  finalizeBtn: {
+    background: "#fff", color: "#000", border: "none", borderRadius: 8,
+    padding: "10px 18px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+    whiteSpace: "nowrap" as const,
+  },
+  bottomBarThumbs: {
+    display: "flex", gap: 8, overflowX: "auto" as const,
+    padding: "0 16px 12px", scrollbarWidth: "none" as const,
+  },
+  bottomThumb: {
+    position: "relative", width: 60, height: 60, flexShrink: 0,
+    borderRadius: 8, overflow: "hidden", cursor: "pointer",
+    border: "2px solid #333",
+  },
+  removeBadge: {
+    position: "absolute", top: 2, right: 2, width: 18, height: 18,
+    background: "rgba(0,0,0,0.7)", border: "none", borderRadius: 4,
+    color: "#f87171", fontSize: 10, fontWeight: 700, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  },
+
+  // Lightbox
+  lightboxOverlay: {
+    position: "fixed", inset: 0, zIndex: 100,
+    background: "rgba(0,0,0,0.95)", backdropFilter: "blur(20px)",
+    display: "flex", flexDirection: "column" as const,
+    alignItems: "center", justifyContent: "center",
+  },
+  lightboxImg: { maxWidth: "95vw", maxHeight: "78vh", objectFit: "contain", borderRadius: 8 },
+  lightboxClose: {
+    position: "absolute", top: 16, right: 16,
+    background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%",
+    color: "#fff", width: 40, height: 40, fontSize: 18, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  },
+  lightboxNav: {
+    position: "absolute", top: "50%", transform: "translateY(-50%)",
+    background: "rgba(255,255,255,0.1)", border: "none", color: "#fff",
+    fontSize: 32, width: 44, height: 44, borderRadius: "50%", cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center",
+  },
+  lightboxFooter: {
+    position: "absolute", bottom: 0, left: 0, right: 0,
+    display: "flex", alignItems: "center", gap: 12,
+    padding: "14px 20px", background: "linear-gradient(transparent, rgba(0,0,0,0.9))",
+    paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
+  },
+  lightboxSelectBtn: {
+    flexShrink: 0, border: "none", borderRadius: 8,
+    padding: "10px 18px", fontSize: 14, fontWeight: 700, cursor: "pointer",
+  },
+
+  // Confirm modal
+  modalOverlay: {
+    position: "fixed", inset: 0, zIndex: 200,
+    background: "rgba(0,0,0,0.88)", backdropFilter: "blur(12px)",
+    display: "flex", alignItems: "center", justifyContent: "center", padding: 20,
+  },
+  modalBox: {
+    background: "#111", border: "1px solid #333", borderRadius: 16,
+    padding: "28px 24px", maxWidth: 380, width: "100%",
+  },
+  modalTitle: { fontSize: 20, fontWeight: 700, marginBottom: 10 },
+  modalMsg:   { color: "#888", fontSize: 14, lineHeight: 1.6, marginBottom: 22 },
+  modalBtns:  { display: "flex", gap: 10 },
+  modalCancel:  { flex: 1, background: "transparent", border: "1px solid #333", borderRadius: 8, color: "#888", padding: "11px", fontSize: 14, cursor: "pointer" },
+  modalConfirm: { flex: 1, background: "#fff", border: "none", borderRadius: 8, color: "#000", padding: "11px", fontSize: 14, fontWeight: 700, cursor: "pointer" },
+
+  // Toast
+  toast: {
+    position: "fixed", bottom: 180, left: "50%", transform: "translateX(-50%)",
+    background: "#333", color: "#fff", borderRadius: 8, padding: "10px 18px",
+    fontSize: 13, zIndex: 300, whiteSpace: "nowrap" as const,
+    boxShadow: "0 4px 20px rgba(0,0,0,0.5)",
+  },
+};
