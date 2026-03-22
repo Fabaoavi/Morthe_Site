@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: morthe-api
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATA_DIR
+        value: /data
+      - key: ADMIN_TOKEN
+        sync: false          # preencher no painel do Render
+      - key: FRONTEND_URL
+        sync: false          # URL do Vercel, ex: https://morthe.vercel.app
+      - key: GOOGLE_SA_PATH
+        value: /data/morthe-service-account.json
+    disk:
+      name: morthe-data
+      mountPath: /data
+      sizeGB: 1
