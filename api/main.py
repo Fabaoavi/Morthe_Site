@@ -205,8 +205,51 @@ def sync_client_thumbnails(client: dict):
             except Exception as e:
                 print(f"[WARN] Erro em '{f['name']}': {e}")
 
+        # ── Sync moods (subpastas Mood_*) ─────────────────────────────
+        try:
+            mood_folder_query = (
+                f"'{folder_id}' in parents "
+                f"and mimeType = 'application/vnd.google-apps.folder' "
+                f"and name contains 'Mood_' "
+                f"and trashed = false"
+            )
+            mood_folders = service.files().list(
+                q=mood_folder_query,
+                fields="files(id, name)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            ).execute().get("files", [])
+
+            for mf in mood_folders:
+                safe_name = re.sub(r'[^\w\-]', '_', mf["name"].lower())
+                mood_cache = os.path.join(cache_dir, safe_name)
+                os.makedirs(mood_cache, exist_ok=True)
+
+                mood_images_query = (
+                    f"'{mf['id']}' in parents "
+                    f"and mimeType contains 'image/' "
+                    f"and trashed = false"
+                )
+                mood_images = service.files().list(
+                    q=mood_images_query,
+                    fields="files(id, name)",
+                    supportsAllDrives=True,
+                    includeItemsFromAllDrives=True,
+                    pageSize=200,
+                ).execute().get("files", [])
+
+                print(f"[SYNC] Mood '{mf['name']}': {len(mood_images)} imagens")
+                for mi in mood_images:
+                    try:
+                        _process_file(service, mi["id"], mi["name"], mood_cache)
+                        synced += 1
+                    except Exception as e:
+                        print(f"[WARN] Mood '{mf['name']}' / '{mi['name']}': {e}")
+        except Exception as e:
+            print(f"[WARN] Erro ao sync moods: {e}")
+
         database.update_client(client_id, status="gallery_ready")
-        print(f"[SYNC] Concluído '{client['name']}': {synced}/{total} arquivos.")
+        print(f"[SYNC] Concluído '{client['name']}': {synced} arquivos.")
 
     except Exception as e:
         print(f"[ERROR] Falha no sync para '{code}': {e}")
@@ -767,6 +810,125 @@ def get_moodboard(code: str = Query(...)):
         raise HTTPException(
             status_code=500, detail=f"Falha ao buscar moodboard: {str(e)}"
         )
+
+
+@app.get("/api/client/moods")
+def get_moods(code: str = Query(...)):
+    """
+    Retorna os moods (subpastas Mood_*) do cliente com seus arquivos.
+    Cada subpasta cujo nome começa com 'Mood_' é tratada como um mood separado.
+    O título do mood é o nome da pasta sem o prefixo 'Mood_'.
+    """
+    client = get_client_or_404(code)
+    folder_id = client.get("drive_gallery_id")
+    if not folder_id:
+        raise HTTPException(status_code=404, detail="URL do Google Drive não configurada.")
+
+    try:
+        service = get_drive_service()
+
+        # 1. Buscar subpastas Mood_* na pasta do cliente
+        folder_query = (
+            f"'{folder_id}' in parents "
+            f"and mimeType = 'application/vnd.google-apps.folder' "
+            f"and name contains 'Mood_' "
+            f"and trashed = false"
+        )
+        folder_results = service.files().list(
+            q=folder_query,
+            fields="files(id, name)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+            orderBy="name",
+        ).execute()
+
+        mood_folders = folder_results.get("files", [])
+
+        if not mood_folders:
+            return {"moods": [], "total_moods": 0, "has_moods": False}
+
+        # IDs das fotos já selecionadas pelo cliente
+        selected_ids = {s["image_id"] for s in database.get_selections(code)}
+
+        moods = []
+        for folder in mood_folders:
+            mood_id = folder["id"]
+            folder_name = folder["name"]
+            # Extrair título: remover prefixo "Mood_" (só o primeiro)
+            title = folder_name.replace("Mood_", "", 1).strip()
+            if not title:
+                title = folder_name
+
+            # 2. Listar imagens dentro da subpasta
+            file_query = (
+                f"'{mood_id}' in parents "
+                f"and mimeType contains 'image/' "
+                f"and trashed = false"
+            )
+            file_results = service.files().list(
+                q=file_query,
+                pageSize=200,
+                fields="files(id, name, mimeType, thumbnailLink, size)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                orderBy="name",
+            ).execute()
+
+            files = file_results.get("files", [])
+
+            # Diretório de cache para este mood
+            safe_name = re.sub(r'[^\w\-]', '_', folder_name.lower())
+            cache_dir = os.path.join(THUMB_CACHE_DIR, code, safe_name)
+
+            mood_files = []
+            for f in files:
+                file_id = f["id"]
+
+                # URLs de cache
+                sm_cache = os.path.join(cache_dir, f"{file_id}_sm.webp")
+                md_cache = os.path.join(cache_dir, f"{file_id}_md.webp")
+
+                if os.path.exists(sm_cache):
+                    cached_thumb = f"/thumb_cache/{code}/{safe_name}/{file_id}_sm.webp"
+                    cached_md = f"/thumb_cache/{code}/{safe_name}/{file_id}_md.webp"
+                else:
+                    cached_thumb = None
+                    cached_md = None
+
+                # Fallback: thumbnail do Google CDN
+                drive_thumb = f.get("thumbnailLink", "")
+                if drive_thumb:
+                    drive_thumb = re.sub(r"=s\d+", "=s400", drive_thumb)
+
+                mood_files.append({
+                    "id": file_id,
+                    "name": f["name"],
+                    "cachedThumbUrl": cached_thumb,
+                    "cachedMdUrl": cached_md,
+                    "thumbnailUrl": drive_thumb or None,
+                    "proxyUrl": f"/api/client/file/{file_id}?code={code}",
+                    "selected": file_id in selected_ids,
+                    "cached": cached_thumb is not None,
+                })
+
+            moods.append({
+                "id": mood_id,
+                "title": title,
+                "folderName": folder_name,
+                "files": mood_files,
+            })
+
+        return {
+            "moods": moods,
+            "total_moods": len(moods),
+            "has_moods": True,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[ERROR] Falha ao buscar moods para '{code}': {e}")
+        raise HTTPException(status_code=500, detail="Erro ao buscar moods do Drive.")
 
 
 @app.get("/api/client/file/{file_id}")
