@@ -502,6 +502,12 @@ const VHS_STYLES = `
   50%  { transform: scaleY(0.02) scaleX(1); opacity: 0.8; max-height: 8px; }
   100% { transform: scaleY(1) scaleX(1); opacity: 1; max-height: 80vh; }
 }
+@keyframes vhsPanelClose {
+  0%   { transform: scaleY(1) scaleX(1); opacity: 1; max-height: 80vh; }
+  50%  { transform: scaleY(0.02) scaleX(1); opacity: 0.8; max-height: 8px; }
+  70%  { transform: scaleY(0.01) scaleX(0.3); opacity: 0.3; max-height: 4px; }
+  100% { transform: scaleY(0) scaleX(0); opacity: 0; max-height: 0; }
+}
 @keyframes menuSlideIn {
   from { opacity: 0; transform: translateY(12px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -526,6 +532,26 @@ interface MoodsContainerProps {
 function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, onSelect, onLightbox, finalized, limitReached }: MoodsContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const useCarousel = moods.length > 3;
+  const [closingMood, setClosingMood] = useState<string | null>(null);
+  const [visibleMood, setVisibleMood] = useState<string | null>(null);
+
+  // Track which mood panel is visible (for close animation)
+  useEffect(() => {
+    if (expandedMood) {
+      setVisibleMood(expandedMood);
+      setClosingMood(null);
+    }
+  }, [expandedMood]);
+
+  const handleClose = () => {
+    if (!visibleMood) return;
+    setClosingMood(visibleMood);
+    setTimeout(() => {
+      setClosingMood(null);
+      setVisibleMood(null);
+      onClose();
+    }, 400); // match vhsPanelClose duration
+  };
 
   const scroll = (dir: "left" | "right") => {
     if (!scrollRef.current) return;
@@ -533,15 +559,19 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, onSe
     scrollRef.current.scrollBy({ left: dir === "left" ? -amount : amount, behavior: "smooth" });
   };
 
+  const showPanel = visibleMood || closingMood;
+
   return (
     <div>
       <style>{VHS_STYLES}</style>
 
-      {/* Expanded panel — ABOVE cards, pushes them down. VHS animation. */}
-      {expandedMood && (() => {
-        const mood = moods.find(m => m.id === expandedMood);
+      {/* Expanded panel — ABOVE cards, pushes them down. VHS open/close animation. */}
+      {showPanel && (() => {
+        const moodId = closingMood || visibleMood;
+        const mood = moods.find(m => m.id === moodId);
         if (!mood) return null;
         const selectedInMood = mood.files.filter(f => f.selected).length;
+        const isClosing = !!closingMood;
         return (
           <div style={{
             marginBottom: 16,
@@ -550,7 +580,9 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, onSe
             border: "1px solid #222",
             overflow: "hidden",
             transformOrigin: "center top",
-            animation: "vhsPanelExpand 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+            animation: isClosing
+              ? "vhsPanelClose 0.4s cubic-bezier(0.55, 0, 1, 0.45) forwards"
+              : "vhsPanelExpand 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards",
           }}>
             {/* Panel header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #1a1a1a" }}>
@@ -559,7 +591,7 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, onSe
                 <p style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{mood.files.length} fotos{selectedInMood > 0 ? ` · ${selectedInMood} selecionadas` : ""}</p>
               </div>
               <button
-                onClick={onClose}
+                onClick={handleClose}
                 style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 34, height: 34, color: "#888", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
               >✕</button>
             </div>
