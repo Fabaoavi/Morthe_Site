@@ -71,6 +71,15 @@ export default function ClientDashboard() {
   });
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Detect mobile
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 640);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
 
   function showToast(msg: unknown) {
     const text = typeof msg === "string" ? msg : Array.isArray(msg) ? "Erro no servidor." : String(msg);
@@ -348,47 +357,61 @@ export default function ClientDashboard() {
       {gallery.length > 0 && (
         <section style={{ ...s.section, paddingBottom: allSelectedFiles.length > 0 ? 160 : 24 }}>
           <h2 style={s.sTitle}>{hasMoods ? "Outras fotos" : "Galeria"}</h2>
-          <div style={s.grid}>
-            {gallery.map((file, idx) => {
-              const isSelected = !!file.selected;
-              const showCheckbox = !finalizeInfo.finalized && (isSelected || !limitReached);
-              return (
-                <div
-                  key={file.id}
-                  style={{
-                    ...s.card,
-                    outline: isSelected ? "3px solid #fff" : "none",
-                    outlineOffset: -3,
-                  }}
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={thumbSrc(file)}
-                    alt={file.name}
-                    style={s.img}
-                    loading="lazy"
-                    onClick={() => setLightbox({ file, idx, source: "gallery" })}
-                  />
-                  {showCheckbox && (
-                    <button
-                      style={{
-                        ...s.checkbox,
-                        background: isSelected ? "#fff" : "rgba(0,0,0,0.55)",
-                        border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.4)",
-                      }}
-                      onClick={e => { e.stopPropagation(); toggleSelect(file); }}
-                      aria-label={isSelected ? "Remover seleção" : "Selecionar"}
-                    >
-                      {isSelected && <span style={{ color: "#000", fontSize: 12, fontWeight: 700 }}>✓</span>}
-                    </button>
-                  )}
-                  {isSelected && !showCheckbox && (
-                    <div style={s.selectedBadge}>✓</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+
+          {isMobile ? (
+            /* Mobile: swipe carousel */
+            <PhotoCarousel
+              files={gallery}
+              thumbSrc={thumbSrc}
+              onSelect={(file) => toggleSelect(file)}
+              onLightbox={(file, idx) => setLightbox({ file, idx, source: "gallery" })}
+              finalized={finalizeInfo.finalized}
+              limitReached={limitReached}
+            />
+          ) : (
+            /* Desktop: grid */
+            <div style={s.grid}>
+              {gallery.map((file, idx) => {
+                const isSelected = !!file.selected;
+                const showCheckbox = !finalizeInfo.finalized && (isSelected || !limitReached);
+                return (
+                  <div
+                    key={file.id}
+                    style={{
+                      ...s.card,
+                      outline: isSelected ? "3px solid #fff" : "none",
+                      outlineOffset: -3,
+                    }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={thumbSrc(file)}
+                      alt={file.name}
+                      style={s.img}
+                      loading="lazy"
+                      onClick={() => setLightbox({ file, idx, source: "gallery" })}
+                    />
+                    {showCheckbox && (
+                      <button
+                        style={{
+                          ...s.checkbox,
+                          background: isSelected ? "#fff" : "rgba(0,0,0,0.55)",
+                          border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.4)",
+                        }}
+                        onClick={e => { e.stopPropagation(); toggleSelect(file); }}
+                        aria-label={isSelected ? "Remover seleção" : "Selecionar"}
+                      >
+                        {isSelected && <span style={{ color: "#000", fontSize: 12, fontWeight: 700 }}>✓</span>}
+                      </button>
+                    )}
+                    {isSelected && !showCheckbox && (
+                      <div style={s.selectedBadge}>✓</div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
       )}
 
@@ -745,6 +768,155 @@ function MoodCard({ mood, isActive, onExpand, thumbSrc }: MoodCardProps) {
           {selectedInMood}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Photo Carousel (Mobile) ─────────────────────────────────────────────────
+
+interface PhotoCarouselProps {
+  files: DriveFile[];
+  thumbSrc: (f: DriveFile) => string;
+  onSelect: (f: DriveFile) => void;
+  onLightbox: (f: DriveFile, idx: number) => void;
+  finalized: boolean;
+  limitReached: boolean;
+}
+
+function PhotoCarousel({ files, thumbSrc, onSelect, onLightbox, finalized, limitReached }: PhotoCarouselProps) {
+  const [currentIdx, setCurrentIdx] = useState(0);
+  const touchStartX = useRef(0);
+  const touchDeltaX = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const file = files[currentIdx];
+  if (!file) return null;
+  const isSelected = !!file.selected;
+  const showCheckbox = !finalized && (isSelected || !limitReached);
+
+  function handleTouchStart(e: React.TouchEvent) {
+    touchStartX.current = e.touches[0].clientX;
+    touchDeltaX.current = 0;
+  }
+
+  function handleTouchMove(e: React.TouchEvent) {
+    touchDeltaX.current = e.touches[0].clientX - touchStartX.current;
+  }
+
+  function handleTouchEnd() {
+    const threshold = 50;
+    if (touchDeltaX.current < -threshold && currentIdx < files.length - 1) {
+      setCurrentIdx(currentIdx + 1);
+    } else if (touchDeltaX.current > threshold && currentIdx > 0) {
+      setCurrentIdx(currentIdx - 1);
+    }
+    touchDeltaX.current = 0;
+  }
+
+  return (
+    <div>
+      {/* Carousel container */}
+      <div
+        ref={containerRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        style={{
+          position: "relative",
+          width: "100%",
+          aspectRatio: "3/4",
+          borderRadius: 12,
+          overflow: "hidden",
+          background: "#111",
+          touchAction: "pan-y",
+        }}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={thumbSrc(file)}
+          alt={file.name}
+          style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+          onClick={() => onLightbox(file, currentIdx)}
+        />
+
+        {/* Selection outline */}
+        {isSelected && (
+          <div style={{ position: "absolute", inset: 0, border: "3px solid #fff", borderRadius: 12, pointerEvents: "none" }} />
+        )}
+
+        {/* Position indicator */}
+        <div style={{
+          position: "absolute", top: 12, left: "50%", transform: "translateX(-50%)",
+          background: "rgba(0,0,0,0.6)", borderRadius: 20, padding: "4px 12px",
+          fontSize: 12, color: "#ccc", fontWeight: 600,
+        }}>
+          {currentIdx + 1} / {files.length}
+        </div>
+
+        {/* Navigation arrows */}
+        {currentIdx > 0 && (
+          <button
+            onClick={() => setCurrentIdx(currentIdx - 1)}
+            style={{ position: "absolute", left: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >‹</button>
+        )}
+        {currentIdx < files.length - 1 && (
+          <button
+            onClick={() => setCurrentIdx(currentIdx + 1)}
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "rgba(0,0,0,0.5)", border: "none", borderRadius: "50%", width: 36, height: 36, color: "#fff", fontSize: 20, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >›</button>
+        )}
+
+        {/* Big select button (bottom) */}
+        {showCheckbox && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onSelect(file); }}
+            style={{
+              position: "absolute", bottom: 12, right: 12,
+              background: isSelected ? "#fff" : "rgba(0,0,0,0.6)",
+              border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.5)",
+              borderRadius: 10, padding: "10px 18px",
+              color: isSelected ? "#000" : "#fff",
+              fontSize: 14, fontWeight: 700, cursor: "pointer",
+              display: "flex", alignItems: "center", gap: 6,
+              backdropFilter: "blur(8px)",
+            }}
+          >
+            {isSelected ? "✓ Selecionada" : "+ Selecionar"}
+          </button>
+        )}
+        {isSelected && !showCheckbox && (
+          <div style={{
+            position: "absolute", bottom: 12, right: 12,
+            background: "#fff", borderRadius: 10, padding: "10px 18px",
+            color: "#000", fontSize: 14, fontWeight: 700,
+          }}>
+            ✓ Selecionada
+          </div>
+        )}
+      </div>
+
+      {/* Thumbnail strip below */}
+      <div style={{
+        display: "flex", gap: 6, overflowX: "auto", padding: "10px 0",
+        scrollbarWidth: "none",
+      }}>
+        {files.map((f, idx) => (
+          <button
+            key={f.id}
+            onClick={() => setCurrentIdx(idx)}
+            style={{
+              width: 48, height: 48, flexShrink: 0, borderRadius: 6, overflow: "hidden",
+              border: idx === currentIdx ? "2px solid #fff" : f.selected ? "2px solid rgba(255,255,255,0.4)" : "1px solid #333",
+              cursor: "pointer", background: "#111", padding: 0,
+              opacity: idx === currentIdx ? 1 : 0.6,
+            }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={thumbSrc(f)} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} loading="lazy" />
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
