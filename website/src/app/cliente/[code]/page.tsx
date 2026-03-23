@@ -496,15 +496,11 @@ export default function ClientDashboard() {
 // ─── VHS Animation Styles ────────────────────────────────────────────────────
 
 const VHS_STYLES = `
-@keyframes vhsOpen {
-  0%   { transform: scaleY(1) scaleX(1); opacity: 1; }
-  40%  { transform: scaleY(0.02) scaleX(1); opacity: 1; }
-  60%  { transform: scaleY(0.02) scaleX(0.0); opacity: 0.8; }
-  100% { transform: scaleY(0) scaleX(0); opacity: 0; }
-}
-@keyframes vhsPanelOpen {
-  0%   { max-height: 0; opacity: 0; }
-  100% { max-height: 80vh; opacity: 1; }
+@keyframes vhsPanelExpand {
+  0%   { transform: scaleY(0.01) scaleX(0.3); opacity: 0; max-height: 0; }
+  30%  { transform: scaleY(0.01) scaleX(1); opacity: 0.5; max-height: 4px; }
+  50%  { transform: scaleY(0.02) scaleX(1); opacity: 0.8; max-height: 8px; }
+  100% { transform: scaleY(1) scaleX(1); opacity: 1; max-height: 80vh; }
 }
 @keyframes menuSlideIn {
   from { opacity: 0; transform: translateY(12px); }
@@ -512,7 +508,7 @@ const VHS_STYLES = `
 }
 `;
 
-// ─── Moods Container (centered + carousel if >3) ────────────────────────────
+// ─── Moods Container ────────────────────────────────────────────────────────
 
 interface MoodsContainerProps {
   moods: Mood[];
@@ -527,7 +523,7 @@ interface MoodsContainerProps {
   limitReached: boolean;
 }
 
-function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, lightboxSrc, onSelect, onLightbox, finalized, limitReached }: MoodsContainerProps) {
+function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, onSelect, onLightbox, finalized, limitReached }: MoodsContainerProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const useCarousel = moods.length > 3;
 
@@ -538,62 +534,23 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, ligh
   };
 
   return (
-    <div style={{ position: "relative" }}>
+    <div>
       <style>{VHS_STYLES}</style>
 
-      {/* Carousel arrows */}
-      {useCarousel && (
-        <>
-          <button onClick={() => scroll("left")} style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", zIndex: 10, background: "rgba(0,0,0,0.7)", border: "1px solid #333", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>‹</button>
-          <button onClick={() => scroll("right")} style={{ position: "absolute", right: -4, top: "50%", transform: "translateY(-50%)", zIndex: 10, background: "rgba(0,0,0,0.7)", border: "1px solid #333", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>›</button>
-        </>
-      )}
-
-      {/* Cards row */}
-      <div
-        ref={scrollRef}
-        style={{
-          display: "flex",
-          gap: 14,
-          justifyContent: useCarousel ? "flex-start" : "center",
-          overflowX: useCarousel ? "auto" : "visible",
-          scrollSnapType: useCarousel ? "x mandatory" : undefined,
-          scrollbarWidth: "none",
-          padding: useCarousel ? "0 24px" : "0",
-          flexWrap: useCarousel ? "nowrap" : "wrap",
-        }}
-      >
-        {moods.map(mood => (
-          <div key={mood.id} style={{ scrollSnapAlign: "center", flexShrink: 0 }}>
-            <MoodCard
-              mood={mood}
-              expanded={expandedMood === mood.id}
-              onExpand={() => onExpand(mood.id)}
-              onClose={onClose}
-              thumbSrc={thumbSrc}
-              lightboxSrc={lightboxSrc}
-              onSelect={(f) => onSelect(f, mood.id)}
-              onLightbox={(f, idx) => onLightbox(f, idx, mood.id)}
-              finalized={finalized}
-              limitReached={limitReached}
-            />
-          </div>
-        ))}
-      </div>
-
-      {/* Expanded panel — below cards, pushes content down */}
+      {/* Expanded panel — ABOVE cards, pushes them down. VHS animation. */}
       {expandedMood && (() => {
         const mood = moods.find(m => m.id === expandedMood);
         if (!mood) return null;
         const selectedInMood = mood.files.filter(f => f.selected).length;
         return (
           <div style={{
-            marginTop: 14,
-            background: "#0f0f0f",
+            marginBottom: 16,
+            background: "#0a0a0a",
             borderRadius: 14,
             border: "1px solid #222",
             overflow: "hidden",
-            animation: "vhsPanelOpen 0.4s ease-out",
+            transformOrigin: "center top",
+            animation: "vhsPanelExpand 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards",
           }}>
             {/* Panel header */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #1a1a1a" }}>
@@ -603,7 +560,7 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, ligh
               </div>
               <button
                 onClick={onClose}
-                style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 34, height: 34, color: "#888", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "color 0.2s" }}
+                style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 34, height: 34, color: "#888", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
               >✕</button>
             </div>
             {/* Photo grid */}
@@ -630,6 +587,41 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, ligh
           </div>
         );
       })()}
+
+      {/* Mood cards — centered grid, max 3 per row, carousel if >3 */}
+      <div style={{ position: "relative" }}>
+        {useCarousel && (
+          <>
+            <button onClick={() => scroll("left")} style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", zIndex: 10, background: "rgba(0,0,0,0.7)", border: "1px solid #333", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>‹</button>
+            <button onClick={() => scroll("right")} style={{ position: "absolute", right: -4, top: "50%", transform: "translateY(-50%)", zIndex: 10, background: "rgba(0,0,0,0.7)", border: "1px solid #333", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>›</button>
+          </>
+        )}
+
+        <div
+          ref={scrollRef}
+          style={{
+            display: "flex",
+            gap: 14,
+            justifyContent: "center",
+            overflowX: useCarousel ? "auto" : "visible",
+            scrollSnapType: useCarousel ? "x mandatory" : undefined,
+            scrollbarWidth: "none",
+            padding: useCarousel ? "0 24px" : "0",
+            flexWrap: useCarousel ? "nowrap" : "wrap",
+          }}
+        >
+          {moods.map(mood => (
+            <div key={mood.id} style={{ scrollSnapAlign: "center", flexShrink: 0 }}>
+              <MoodCard
+                mood={mood}
+                isActive={expandedMood === mood.id}
+                onExpand={() => onExpand(mood.id)}
+                thumbSrc={thumbSrc}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -638,41 +630,24 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, ligh
 
 interface MoodCardProps {
   mood: Mood;
-  expanded: boolean;
+  isActive: boolean;
   onExpand: () => void;
-  onClose: () => void;
   thumbSrc: (f: DriveFile) => string;
-  lightboxSrc: (f: DriveFile) => string;
-  onSelect: (f: DriveFile) => void;
-  onLightbox: (f: DriveFile, idx: number) => void;
-  finalized: boolean;
-  limitReached: boolean;
 }
 
-function MoodCard({ mood, expanded, onExpand, thumbSrc }: MoodCardProps) {
+function MoodCard({ mood, isActive, onExpand, thumbSrc }: MoodCardProps) {
   const [slideIdx, setSlideIdx] = useState(0);
   const [hovered, setHovered] = useState(false);
-  const [closing, setClosing] = useState(false);
 
   useEffect(() => {
-    if (expanded || mood.files.length <= 1) return;
+    if (mood.files.length <= 1) return;
     const interval = setInterval(() => {
       setSlideIdx(prev => (prev + 1) % mood.files.length);
     }, 3000);
     return () => clearInterval(interval);
-  }, [expanded, mood.files.length]);
+  }, [mood.files.length]);
 
   const selectedInMood = mood.files.filter(f => f.selected).length;
-
-  const handleClick = () => {
-    if (expanded) return;
-    // VHS close animation on the card, then open panel
-    setClosing(true);
-    setTimeout(() => {
-      setClosing(false);
-      onExpand();
-    }, 350);
-  };
 
   return (
     <div
@@ -683,14 +658,12 @@ function MoodCard({ mood, expanded, onExpand, thumbSrc }: MoodCardProps) {
         borderRadius: 12,
         overflow: "hidden",
         background: "#111",
-        cursor: expanded ? "default" : "pointer",
-        border: expanded ? "2px solid #fff" : "1px solid #222",
+        cursor: "pointer",
+        border: isActive ? "2px solid #fff" : "1px solid #222",
         transition: "border-color 0.3s, transform 0.3s",
-        transform: hovered && !expanded ? "scale(1.03)" : "scale(1)",
-        animation: closing ? "vhsOpen 0.35s ease-in forwards" : undefined,
-        opacity: expanded ? 0.5 : 1,
+        transform: hovered ? "scale(1.03)" : "scale(1)",
       }}
-      onClick={handleClick}
+      onClick={onExpand}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
@@ -713,13 +686,13 @@ function MoodCard({ mood, expanded, onExpand, thumbSrc }: MoodCardProps) {
       {/* Overlay + Title */}
       <div style={{
         position: "absolute", inset: 0,
-        background: hovered ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.15)",
+        background: hovered || isActive ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.15)",
         transition: "background 0.3s",
         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       }}>
         <h3 style={{
           color: "#fff", fontSize: "clamp(14px, 4vw, 20px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
-          opacity: hovered ? 1 : 0, transform: hovered ? "translateY(0)" : "translateY(8px)",
+          opacity: hovered || isActive ? 1 : 0, transform: hovered || isActive ? "translateY(0)" : "translateY(8px)",
           transition: "opacity 0.3s, transform 0.3s",
           textShadow: "0 2px 8px rgba(0,0,0,0.8)",
           textAlign: "center", padding: "0 8px",
@@ -728,7 +701,7 @@ function MoodCard({ mood, expanded, onExpand, thumbSrc }: MoodCardProps) {
         </h3>
         <p style={{
           color: "#aaa", fontSize: 11, marginTop: 4,
-          opacity: hovered ? 1 : 0, transition: "opacity 0.3s 0.05s",
+          opacity: hovered || isActive ? 1 : 0, transition: "opacity 0.3s 0.05s",
         }}>
           {mood.files.length} fotos
         </p>
