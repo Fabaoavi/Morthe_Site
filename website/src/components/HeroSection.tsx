@@ -44,8 +44,10 @@ export default function HeroSection() {
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
-          <Link
-            href="#reuniao"
+          <a
+            href="https://wa.me/5516982662148?text=Ol%C3%A1%2C%20gostaria%20de%20agendar%20uma%20reuni%C3%A3o!"
+            target="_blank"
+            rel="noopener noreferrer"
             className="inline-flex h-12 items-center justify-center rounded-md bg-white px-8 text-sm font-semibold text-zinc-950 shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 active:scale-95 hover:brightness-90"
             style={{
               boxShadow: isHovered ? '0 0 30px -5px var(--dynamic-color)' : 'none',
@@ -53,7 +55,7 @@ export default function HeroSection() {
             }}
           >
             Agendar Reunião
-          </Link>
+          </a>
           <Link
             href="#destaques"
             className="inline-flex h-12 items-center justify-center rounded-md border text-sm font-semibold px-8 shadow-sm transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 active:scale-95 backdrop-blur-sm"
