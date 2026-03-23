@@ -25,6 +25,8 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaIoBaseDownload
 from colorthief import ColorThief
 from dotenv import load_dotenv
+from datetime import datetime, timezone, timedelta
+import jwt
 
 import database
 
@@ -33,6 +35,9 @@ import database
 load_dotenv()
 
 ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "M0rTh3")
+ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME", "admin")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "M0rTh3")
+JWT_SECRET = os.environ.get("JWT_SECRET", "morthe-jwt-secret-change-in-production")
 
 # Drive: usa escopo completo para poder criar subpastas e copiar arquivos
 SCOPES = ["https://www.googleapis.com/auth/drive"]
@@ -354,10 +359,32 @@ def generate_client_code() -> str:
     raise RuntimeError("Não foi possível gerar um código único. Tente novamente.")
 
 
-def verify_admin(x_admin_token: str = Header(..., alias="X-Admin-Token")):
-    """Dependency que valida o token de administrador no header."""
-    if x_admin_token != ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="Token de administrador inválido.")
+def verify_admin(
+    authorization: Optional[str] = Header(None),
+    x_admin_token: Optional[str] = Header(None, alias="X-Admin-Token"),
+):
+    """
+    Dependency que valida acesso admin.
+    Aceita:
+      1. Authorization: Bearer <jwt> (novo, preferido)
+      2. X-Admin-Token: <token> (legado, compatibilidade)
+    """
+    # Tentar JWT primeiro
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:]
+        try:
+            jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+            return  # JWT válido
+        except jwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Sessão expirada. Faça login novamente.")
+        except jwt.InvalidTokenError:
+            raise HTTPException(status_code=401, detail="Token inválido.")
+
+    # Fallback legado
+    if x_admin_token and x_admin_token == ADMIN_TOKEN:
+        return
+
+    raise HTTPException(status_code=401, detail="Não autorizado. Faça login.")
 
 
 def get_client_or_404(code: str) -> dict:
@@ -434,6 +461,31 @@ class ImageHighlight(BaseModel):
     imageUrl: str
     colorPrimary: str
     colorSecondary: str
+
+
+# ─── Auth ────────────────────────────────────────────────────────────────────
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+@app.post("/api/admin/login")
+def admin_login(body: LoginRequest):
+    """
+    Autentica o administrador e retorna um JWT válido por 24h.
+    Credenciais definidas por ADMIN_USERNAME e ADMIN_PASSWORD (env vars).
+    """
+    if body.username != ADMIN_USERNAME or body.password != ADMIN_PASSWORD:
+        raise HTTPException(status_code=401, detail="Usuário ou senha incorretos.")
+
+    payload = {
+        "sub": body.username,
+        "iat": datetime.now(timezone.utc),
+        "exp": datetime.now(timezone.utc) + timedelta(hours=24),
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm="HS256")
+    return {"token": token, "expires_in": 86400}
 
 
 # ─── Rotas de Admin ──────────────────────────────────────────────────────────
@@ -1063,8 +1115,6 @@ def get_client_selections(code: str = Query(...)):
 
 
 # ─── Finalizar / Reabrir Seleção ─────────────────────────────────────────────
-
-from datetime import datetime, timedelta, timezone
 
 
 def _can_reopen(client: dict) -> tuple[bool, str]:
