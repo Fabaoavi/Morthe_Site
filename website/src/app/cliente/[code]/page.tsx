@@ -16,6 +16,13 @@ interface DriveFile {
   cached?: boolean;
 }
 
+interface Mood {
+  id: string;
+  title: string;
+  folderName: string;
+  files: DriveFile[];
+}
+
 interface ClientInfo {
   name: string;
   session_date: string | null;
@@ -46,6 +53,8 @@ export default function ClientDashboard() {
   const [info, setInfo] = useState<ClientInfo | null>(null);
   const [gallery, setGallery] = useState<DriveFile[]>([]);
   const [moodboard, setMoodboard] = useState<DriveFile[]>([]);
+  const [moods, setMoods] = useState<Mood[]>([]);
+  const [expandedMood, setExpandedMood] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [selectionsCount, setSelectionsCount] = useState(0);
@@ -56,7 +65,7 @@ export default function ClientDashboard() {
   });
   const [countdown, setCountdown] = useState(0);
   const [finalizing, setFinalizing] = useState(false);
-  const [lightbox, setLightbox] = useState<{ file: DriveFile; idx: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{ file: DriveFile; idx: number; source: "gallery" | "mood"; moodId?: string } | null>(null);
   const [confirmModal, setConfirmModal] = useState<ConfirmModal>({
     open: false, title: "", message: "", onConfirm: () => {},
   });
@@ -74,30 +83,42 @@ export default function ClientDashboard() {
     setConfirmModal({ open: true, title, message, onConfirm, confirmLabel });
   }
 
-  const selectedFiles = gallery.filter(f => f.selected);
+  // Collect all selected files from gallery + moods
+  const allSelectedFiles = [
+    ...gallery.filter(f => f.selected),
+    ...moods.flatMap(m => m.files.filter(f => f.selected)),
+  ];
   const limitReached = selectionsCount >= maxSelections;
+
+  // All files for lightbox navigation (gallery + expanded mood)
+  const lightboxFiles = lightbox?.source === "mood" && lightbox.moodId
+    ? moods.find(m => m.id === lightbox.moodId)?.files || []
+    : gallery;
 
   const fetchData = useCallback(async () => {
     try {
-      const [infoRes, galleryRes, moodRes] = await Promise.all([
+      const [infoRes, galleryRes, moodRes, moodsRes] = await Promise.all([
         fetch(`${API}/api/client/info?code=${code}`),
         fetch(`${API}/api/client/gallery?code=${code}`),
         fetch(`${API}/api/client/moodboard?code=${code}`),
+        fetch(`${API}/api/client/moods?code=${code}`),
       ]);
       const infoData: ClientInfo = await infoRes.json();
       const galleryData = await galleryRes.json();
       const moodData = await moodRes.json();
+      const moodsData = await moodsRes.json();
 
       setInfo(infoData);
       setGallery(galleryData.files || []);
       setMoodboard(moodData.files || []);
+      setMoods(moodsData.moods || []);
       setSelectionsCount(infoData.current_selections);
       setMaxSelections(infoData.max_selections);
       setFinalizeInfo(prev => ({ ...prev, finalized: infoData.status === "selection_done" }));
 
       if (infoData.status === "syncing") setTimeout(fetchData, 8000);
     } catch {
-      setError("Erro ao carregar. Verifique se a API está rodando em :8000");
+      setError("Erro ao carregar. Verifique se a API está rodando.");
     } finally { setLoading(false); }
   }, [code]);
 
@@ -119,24 +140,30 @@ export default function ClientDashboard() {
   // Teclado para lightbox
   useEffect(() => {
     if (!lightbox) return;
+    const files = lightboxFiles;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setLightbox(null);
-      if (e.key === "ArrowRight" && lightbox.idx >= 0 && lightbox.idx < gallery.length - 1)
-        setLightbox({ file: gallery[lightbox.idx + 1], idx: lightbox.idx + 1 });
+      if (e.key === "ArrowRight" && lightbox.idx >= 0 && lightbox.idx < files.length - 1)
+        setLightbox({ ...lightbox, file: files[lightbox.idx + 1], idx: lightbox.idx + 1 });
       if (e.key === "ArrowLeft" && lightbox.idx > 0)
-        setLightbox({ file: gallery[lightbox.idx - 1], idx: lightbox.idx - 1 });
+        setLightbox({ ...lightbox, file: files[lightbox.idx - 1], idx: lightbox.idx - 1 });
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [lightbox, gallery]);
+  }, [lightbox, lightboxFiles]);
 
-  async function toggleSelect(file: DriveFile) {
+  async function toggleSelect(file: DriveFile, moodId?: string) {
     if (finalizeInfo.finalized) return;
     const isSelected = file.selected;
     if (!isSelected && limitReached) return;
 
-    // Optimistic update
+    // Optimistic update — gallery
     setGallery(g => g.map(f => f.id === file.id ? { ...f, selected: !isSelected } : f));
+    // Optimistic update — moods
+    setMoods(ms => ms.map(m => ({
+      ...m,
+      files: m.files.map(f => f.id === file.id ? { ...f, selected: !isSelected } : f),
+    })));
     setSelectionsCount(c => c + (isSelected ? -1 : 1));
 
     try {
@@ -152,6 +179,10 @@ export default function ClientDashboard() {
     } catch {
       // Revert
       setGallery(g => g.map(f => f.id === file.id ? { ...f, selected: isSelected } : f));
+      setMoods(ms => ms.map(m => ({
+        ...m,
+        files: m.files.map(f => f.id === file.id ? { ...f, selected: isSelected } : f),
+      })));
       setSelectionsCount(c => c + (isSelected ? 1 : -1));
       showToast("Erro ao atualizar seleção. Tente novamente.");
     }
@@ -164,17 +195,14 @@ export default function ClientDashboard() {
       async () => {
         setFinalizing(true);
         try {
-          // code é enviado como query param (backend usa Query(...))
-          const res = await fetch(`${API}/api/client/finalize?code=${encodeURIComponent(code)}`, {
-            method: "POST",
-          });
+          const res = await fetch(`${API}/api/client/finalize?code=${encodeURIComponent(code)}`, { method: "POST" });
           const d = await res.json();
           if (!res.ok) { showToast(d.detail || "Erro ao finalizar."); return; }
           setFinalizeInfo({
             finalized: true,
             can_reopen: d.can_reopen,
             reopen_seconds_left: d.reopen_seconds_left ?? 0,
-            unlock_count: 3 - (d.reopens_remaining ?? 3), // inferido a partir de reopens_remaining
+            unlock_count: 3 - (d.reopens_remaining ?? 3),
             locked: false,
           });
         } finally { setFinalizing(false); }
@@ -188,16 +216,13 @@ export default function ClientDashboard() {
       "Reabrir seleção?",
       `Você usará ${finalizeInfo.unlock_count + 1} de 3 tentativas. Após reabrir, terá ${Math.floor(countdown / 3600)}h para refazer a seleção.`,
       async () => {
-        // code é enviado como query param (backend usa Query(...))
-        const res = await fetch(`${API}/api/client/reopen?code=${encodeURIComponent(code)}`, {
-          method: "POST",
-        });
+        const res = await fetch(`${API}/api/client/reopen?code=${encodeURIComponent(code)}`, { method: "POST" });
         const d = await res.json();
         if (!res.ok) { showToast(d.detail || "Não foi possível reabrir."); return; }
         setFinalizeInfo({
           finalized: false, can_reopen: false,
           reopen_seconds_left: d.reopen_seconds_left ?? 0,
-          unlock_count: d.reopens_used ?? 0,  // backend retorna reopens_used
+          unlock_count: d.reopens_used ?? 0,
           locked: false,
         });
         fetchData();
@@ -209,18 +234,20 @@ export default function ClientDashboard() {
   function fmtTime(secs: number) {
     const h = Math.floor(secs / 3600).toString().padStart(2, "0");
     const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
-    const s = (secs % 60).toString().padStart(2, "0");
-    return `${h}:${m}:${s}`;
+    const ss = (secs % 60).toString().padStart(2, "0");
+    return `${h}:${m}:${ss}`;
   }
 
   function thumbSrc(file: DriveFile) {
     if (file.cachedThumbUrl) return `${API}${file.cachedThumbUrl}`;
     return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
   }
-  function lightboxSrc(file: DriveFile) {
+  function lightboxSrcFn(file: DriveFile) {
     if (file.cachedMdUrl) return `${API}${file.cachedMdUrl}`;
     return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
   }
+
+  const hasMoods = moods.length > 0;
 
   if (loading) return (
     <div style={s.center}>
@@ -238,7 +265,7 @@ export default function ClientDashboard() {
           <h1 style={s.clientName}>{info.name}</h1>
           {info.session_date && (
             <p style={s.sessionDate}>
-              📅 {new Date(info.session_date + "T12:00:00").toLocaleDateString("pt-BR", { dateStyle: "long" })}
+              {new Date(info.session_date + "T12:00:00").toLocaleDateString("pt-BR", { dateStyle: "long" })}
             </p>
           )}
         </div>
@@ -250,15 +277,13 @@ export default function ClientDashboard() {
         </div>
       </header>
 
-      {/* ── Syncing banner ── */}
+      {/* ── Banners ── */}
       {info.status === "syncing" && (
-        <div style={s.banner}>⏳ Preparando sua galeria em alta qualidade... aguarde.</div>
+        <div style={s.banner}>Preparando sua galeria em alta qualidade... aguarde.</div>
       )}
-
-      {/* ── Finalized banner ── */}
       {finalizeInfo.finalized && (
         <div style={{ ...s.banner, background: "#052e16", borderColor: "#166534", color: "#4ade80" }}>
-          ✓ Seleção finalizada!
+          Seleção finalizada!
           {finalizeInfo.can_reopen && countdown > 0 && (
             <span style={{ marginLeft: 12, fontSize: 13, color: "#86efac" }}>
               Reabrir disponível por {fmtTime(countdown)}
@@ -274,27 +299,24 @@ export default function ClientDashboard() {
           )}
         </div>
       )}
-
-      {/* ── Limit banner ── */}
       {limitReached && !finalizeInfo.finalized && (
         <div style={{ ...s.banner, background: "#0f172a", borderColor: "#1e40af", color: "#93c5fd" }}>
-          ✓ Você atingiu o limite de {maxSelections} fotos. Revise sua seleção nas miniaturas abaixo ou finalize.
+          Você atingiu o limite de {maxSelections} fotos. Revise sua seleção ou finalize.
         </div>
       )}
-
       {info.notes && (
         <div style={{ ...s.banner, background: "#1a1a1a", borderColor: "#333", color: "#888" }}>
-          💬 {info.notes}
+          {info.notes}
         </div>
       )}
 
-      {/* ── Moodboard ── */}
+      {/* ── Moodboard (referências) ── */}
       {moodboard.length > 0 && (
         <section style={s.section}>
           <h2 style={s.sTitle}>Referências</h2>
           <div style={s.grid}>
             {moodboard.map(f => (
-              <div key={f.id} style={s.card} onClick={() => setLightbox({ file: f, idx: -1 })}>
+              <div key={f.id} style={s.card} onClick={() => setLightbox({ file: f, idx: -1, source: "gallery" })}>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img src={thumbSrc(f)} alt={f.name} style={s.img} loading="lazy" />
               </div>
@@ -303,12 +325,34 @@ export default function ClientDashboard() {
         </section>
       )}
 
-      {/* ── Gallery ── */}
-      <section style={{ ...s.section, paddingBottom: selectedFiles.length > 0 ? 160 : 24 }}>
-        <h2 style={s.sTitle}>Galeria</h2>
-        {gallery.length === 0 ? (
-          <p style={{ color: "#555", textAlign: "center", paddingTop: 40 }}>Nenhuma foto disponível ainda.</p>
-        ) : (
+      {/* ── Moods (subpastas Mood_*) ── */}
+      {hasMoods && (
+        <section style={s.section}>
+          <h2 style={s.sTitle}>Moods</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(200px, 44vw), 1fr))", gap: 12 }}>
+            {moods.map(mood => (
+              <MoodCard
+                key={mood.id}
+                mood={mood}
+                expanded={expandedMood === mood.id}
+                onExpand={() => setExpandedMood(expandedMood === mood.id ? null : mood.id)}
+                onClose={() => setExpandedMood(null)}
+                thumbSrc={thumbSrc}
+                lightboxSrc={lightboxSrcFn}
+                onSelect={(file) => toggleSelect(file, mood.id)}
+                onLightbox={(file, idx) => setLightbox({ file, idx, source: "mood", moodId: mood.id })}
+                finalized={finalizeInfo.finalized}
+                limitReached={limitReached}
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* ── Gallery (fotos sem mood) ── */}
+      {gallery.length > 0 && (
+        <section style={{ ...s.section, paddingBottom: allSelectedFiles.length > 0 ? 160 : 24 }}>
+          <h2 style={s.sTitle}>{hasMoods ? "Outras fotos" : "Galeria"}</h2>
           <div style={s.grid}>
             {gallery.map((file, idx) => {
               const isSelected = !!file.selected;
@@ -328,7 +372,7 @@ export default function ClientDashboard() {
                     alt={file.name}
                     style={s.img}
                     loading="lazy"
-                    onClick={() => setLightbox({ file, idx })}
+                    onClick={() => setLightbox({ file, idx, source: "gallery" })}
                   />
                   {showCheckbox && (
                     <button
@@ -350,13 +394,21 @@ export default function ClientDashboard() {
               );
             })}
           </div>
-        )}
-      </section>
+        </section>
+      )}
+
+      {/* No content state */}
+      {gallery.length === 0 && moods.length === 0 && moodboard.length === 0 && (
+        <section style={s.section}>
+          <p style={{ color: "#555", textAlign: "center", paddingTop: 40 }}>
+            {info.status === "syncing" ? "Preparando suas fotos..." : "Nenhuma foto disponível ainda."}
+          </p>
+        </section>
+      )}
 
       {/* ── Fixed bottom selection bar ── */}
-      {selectedFiles.length > 0 && (
+      {allSelectedFiles.length > 0 && (
         <div style={s.bottomBar}>
-          {/* Finalizar button + count */}
           {!finalizeInfo.finalized && (
             <div style={s.bottomBarTop}>
               <span style={s.bottomBarCount}>{selectionsCount}/{maxSelections} selecionadas</span>
@@ -365,13 +417,12 @@ export default function ClientDashboard() {
               </button>
             </div>
           )}
-          {/* Scrollable thumbnails */}
           <div style={s.bottomBarThumbs}>
-            {selectedFiles.map(f => (
+            {allSelectedFiles.map(f => (
               <div
                 key={f.id}
                 style={s.bottomThumb}
-                onClick={() => setLightbox({ file: f, idx: gallery.indexOf(f) })}
+                onClick={() => setLightbox({ file: f, idx: -1, source: "gallery" })}
                 title={f.name}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -396,15 +447,15 @@ export default function ClientDashboard() {
 
           {lightbox.idx > 0 && (
             <button style={{ ...s.lightboxNav, left: 12 }}
-              onClick={() => setLightbox({ file: gallery[lightbox.idx - 1], idx: lightbox.idx - 1 })}>‹</button>
+              onClick={() => setLightbox({ ...lightbox, file: lightboxFiles[lightbox.idx - 1], idx: lightbox.idx - 1 })}>‹</button>
           )}
-          {lightbox.idx >= 0 && lightbox.idx < gallery.length - 1 && (
+          {lightbox.idx >= 0 && lightbox.idx < lightboxFiles.length - 1 && (
             <button style={{ ...s.lightboxNav, right: 12 }}
-              onClick={() => setLightbox({ file: gallery[lightbox.idx + 1], idx: lightbox.idx + 1 })}>›</button>
+              onClick={() => setLightbox({ ...lightbox, file: lightboxFiles[lightbox.idx + 1], idx: lightbox.idx + 1 })}>›</button>
           )}
 
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightboxSrc(lightbox.file)} alt={lightbox.file.name} style={s.lightboxImg} />
+          <img src={lightboxSrcFn(lightbox.file)} alt={lightbox.file.name} style={s.lightboxImg} />
 
           <div style={s.lightboxFooter}>
             <span style={{ color: "#ccc", fontSize: 14, flex: 1 }}>{lightbox.file.name}</span>
@@ -416,7 +467,7 @@ export default function ClientDashboard() {
                   color: lightbox.file.selected ? "#f87171" : "#000",
                   border: lightbox.file.selected ? "1px solid #f87171" : "none",
                 }}
-                onClick={() => toggleSelect(lightbox.file)}
+                onClick={() => toggleSelect(lightbox.file, lightbox.moodId)}
                 disabled={!lightbox.file.selected && limitReached}
               >
                 {lightbox.file.selected ? "✕ Remover" : "+ Selecionar"}
@@ -426,16 +477,14 @@ export default function ClientDashboard() {
         </div>
       )}
 
-      {/* ── Custom confirm modal ── */}
+      {/* ── Confirm modal ── */}
       {confirmModal.open && (
         <div style={s.modalOverlay} onClick={e => { if (e.target === e.currentTarget) setConfirmModal(p => ({...p, open: false})); }}>
           <div style={s.modalBox}>
             <h3 style={s.modalTitle}>{confirmModal.title}</h3>
             <p style={s.modalMsg}>{confirmModal.message}</p>
             <div style={s.modalBtns}>
-              <button style={s.modalCancel} onClick={() => setConfirmModal(p => ({...p, open: false}))}>
-                Cancelar
-              </button>
+              <button style={s.modalCancel} onClick={() => setConfirmModal(p => ({...p, open: false}))}>Cancelar</button>
               <button style={s.modalConfirm} onClick={() => { setConfirmModal(p => ({...p, open: false})); confirmModal.onConfirm(); }}>
                 {confirmModal.confirmLabel ?? "Confirmar"}
               </button>
@@ -444,8 +493,143 @@ export default function ClientDashboard() {
         </div>
       )}
 
-      {/* ── Toast ── */}
       {toast && <div style={s.toast}>{toast}</div>}
+    </div>
+  );
+}
+
+// ─── Mood Card Component ─────────────────────────────────────────────────────
+
+interface MoodCardProps {
+  mood: Mood;
+  expanded: boolean;
+  onExpand: () => void;
+  onClose: () => void;
+  thumbSrc: (f: DriveFile) => string;
+  lightboxSrc: (f: DriveFile) => string;
+  onSelect: (f: DriveFile) => void;
+  onLightbox: (f: DriveFile, idx: number) => void;
+  finalized: boolean;
+  limitReached: boolean;
+}
+
+function MoodCard({ mood, expanded, onExpand, onClose, thumbSrc, onSelect, onLightbox, finalized, limitReached }: MoodCardProps) {
+  const [slideIdx, setSlideIdx] = useState(0);
+  const [hovered, setHovered] = useState(false);
+
+  // Auto slideshow
+  useEffect(() => {
+    if (expanded || mood.files.length <= 1) return;
+    const interval = setInterval(() => {
+      setSlideIdx(prev => (prev + 1) % mood.files.length);
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [expanded, mood.files.length]);
+
+  const selectedInMood = mood.files.filter(f => f.selected).length;
+
+  if (expanded) {
+    return (
+      <div
+        style={{
+          gridColumn: "1 / -1",
+          background: "#111",
+          borderRadius: 12,
+          border: "1px solid #333",
+          overflow: "hidden",
+          animation: "moodExpand 0.35s ease-out",
+        }}
+      >
+        <style>{`@keyframes moodExpand { from { opacity: 0; max-height: 0; transform: scaleY(0.95); } to { opacity: 1; max-height: 2000px; transform: scaleY(1); } }`}</style>
+        {/* Mood header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #222" }}>
+          <div>
+            <h3 style={{ fontSize: 18, fontWeight: 700, color: "#fff", margin: 0 }}>{mood.title}</h3>
+            <p style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{mood.files.length} fotos{selectedInMood > 0 ? ` · ${selectedInMood} selecionadas` : ""}</p>
+          </div>
+          <button
+            onClick={onClose}
+            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+          >✕</button>
+        </div>
+        {/* Grid of files */}
+        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(120px, 40vw), 1fr))", gap: 8 }}>
+          {mood.files.map((file, idx) => {
+            const isSelected = !!file.selected;
+            const showCheckbox = !finalized && (isSelected || !limitReached);
+            return (
+              <div key={file.id} style={{ position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#1a1a1a", cursor: "pointer", outline: isSelected ? "3px solid #fff" : "none", outlineOffset: -3 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={thumbSrc(file)} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} loading="lazy" onClick={() => onLightbox(file, idx)} />
+                {showCheckbox && (
+                  <button
+                    style={{ position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", background: isSelected ? "#fff" : "rgba(0,0,0,0.55)", border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.4)" }}
+                    onClick={e => { e.stopPropagation(); onSelect(file); }}
+                  >
+                    {isSelected && <span style={{ color: "#000", fontSize: 12, fontWeight: 700 }}>✓</span>}
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Collapsed card — slideshow + hover title
+  return (
+    <div
+      style={{ position: "relative", aspectRatio: "1", borderRadius: 12, overflow: "hidden", background: "#111", cursor: "pointer", border: "1px solid #222", transition: "border-color 0.3s, transform 0.3s", ...(hovered ? { borderColor: "#555", transform: "scale(1.02)" } : {}) }}
+      onClick={onExpand}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Slideshow */}
+      {mood.files.map((file, idx) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={file.id}
+          src={thumbSrc(file)}
+          alt=""
+          style={{
+            position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+            transition: "opacity 0.8s ease-in-out",
+            opacity: idx === slideIdx ? 1 : 0,
+          }}
+          loading="lazy"
+        />
+      ))}
+
+      {/* Overlay + Title on hover */}
+      <div style={{
+        position: "absolute", inset: 0,
+        background: hovered ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.15)",
+        transition: "background 0.3s",
+        display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+      }}>
+        <h3 style={{
+          color: "#fff", fontSize: 20, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
+          opacity: hovered ? 1 : 0, transform: hovered ? "translateY(0)" : "translateY(8px)",
+          transition: "opacity 0.3s, transform 0.3s",
+          textShadow: "0 2px 8px rgba(0,0,0,0.8)",
+        }}>
+          {mood.title}
+        </h3>
+        <p style={{
+          color: "#aaa", fontSize: 12, marginTop: 4,
+          opacity: hovered ? 1 : 0, transition: "opacity 0.3s 0.05s",
+        }}>
+          {mood.files.length} fotos{selectedInMood > 0 ? ` · ${selectedInMood} selecionadas` : ""}
+        </p>
+      </div>
+
+      {/* Selection badge */}
+      {selectedInMood > 0 && (
+        <div style={{ position: "absolute", top: 8, right: 8, background: "#fff", color: "#000", borderRadius: 12, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>
+          {selectedInMood}
+        </div>
+      )}
     </div>
   );
 }
@@ -456,21 +640,17 @@ const s: Record<string, React.CSSProperties> = {
   center:  { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#0a0a0a" },
   spinner: { width: 36, height: 36, border: "3px solid #222", borderTop: "3px solid #fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" },
 
-  // Header
   header:      { display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "20px 16px 12px", borderBottom: "1px solid #1a1a1a", gap: 12 },
   clientName:  { fontSize: "clamp(18px, 5vw, 26px)", fontWeight: 700, marginBottom: 4 },
   sessionDate: { fontSize: 13, color: "#555" },
   counter:     { textAlign: "right", flexShrink: 0 },
 
-  // Banners
   banner: { margin: "0 16px 2px", padding: "10px 14px", borderRadius: 8, border: "1px solid #333", fontSize: 13, background: "#1a1a0a", color: "#fbbf24" },
   reabrirBtn: { background: "#fff", color: "#000", border: "none", borderRadius: 6, padding: "3px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
 
-  // Sections
   section: { padding: "20px 16px" },
   sTitle:  { fontSize: 13, fontWeight: 600, letterSpacing: "0.08em", color: "#555", textTransform: "uppercase" as const, marginBottom: 14 },
 
-  // Grid
   grid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fill, minmax(min(140px, 44vw), 1fr))",
@@ -479,17 +659,13 @@ const s: Record<string, React.CSSProperties> = {
   card: { position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#111", cursor: "pointer" },
   img:  { width: "100%", height: "100%", objectFit: "cover", display: "block" },
 
-  // Checkbox
   checkbox: { position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s" },
   selectedBadge: { position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#000" },
 
-  // Bottom bar
   bottomBar: {
     position: "fixed", bottom: 0, left: 0, right: 0,
-    background: "rgba(10,10,10,0.97)",
-    backdropFilter: "blur(16px)",
-    borderTop: "1px solid #222",
-    zIndex: 50,
+    background: "rgba(10,10,10,0.97)", backdropFilter: "blur(16px)",
+    borderTop: "1px solid #222", zIndex: 50,
     paddingBottom: "env(safe-area-inset-bottom)",
   },
   bottomBarTop: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 16px 6px", gap: 10 },
@@ -515,7 +691,6 @@ const s: Record<string, React.CSSProperties> = {
     display: "flex", alignItems: "center", justifyContent: "center",
   },
 
-  // Lightbox
   lightboxOverlay: {
     position: "fixed", inset: 0, zIndex: 100,
     background: "rgba(0,0,0,0.95)", backdropFilter: "blur(20px)",
@@ -546,7 +721,6 @@ const s: Record<string, React.CSSProperties> = {
     padding: "10px 18px", fontSize: 14, fontWeight: 700, cursor: "pointer",
   },
 
-  // Confirm modal
   modalOverlay: {
     position: "fixed", inset: 0, zIndex: 200,
     background: "rgba(0,0,0,0.88)", backdropFilter: "blur(12px)",
@@ -562,7 +736,6 @@ const s: Record<string, React.CSSProperties> = {
   modalCancel:  { flex: 1, background: "transparent", border: "1px solid #333", borderRadius: 8, color: "#888", padding: "11px", fontSize: 14, cursor: "pointer" },
   modalConfirm: { flex: 1, background: "#fff", border: "none", borderRadius: 8, color: "#000", padding: "11px", fontSize: 14, fontWeight: 700, cursor: "pointer" },
 
-  // Toast
   toast: {
     position: "fixed", bottom: 180, left: "50%", transform: "translateX(-50%)",
     background: "#333", color: "#fff", borderRadius: 8, padding: "10px 18px",
