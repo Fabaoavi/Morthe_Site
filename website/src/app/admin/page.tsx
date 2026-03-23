@@ -1,9 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-
-const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-const ADMIN_TOKEN = "M0rTh3";
+import { useRouter } from "next/navigation";
 
 interface Client {
   id: number;
@@ -27,17 +25,26 @@ interface Selection {
   selected_at: string;
 }
 
+const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
+
 const STATUS: Record<string, { label: string; color: string }> = {
   pending:        { label: "Aguardando",      color: "#888" },
-  syncing:        { label: "⏳ Sincronizando",  color: "#a78bfa" },
+  syncing:        { label: "Sincronizando",   color: "#a78bfa" },
   gallery_ready:  { label: "Galeria pronta",  color: "#60a5fa" },
   selecting:      { label: "Selecionando",    color: "#fbbf24" },
-  selection_done: { label: "✓ Concluído",     color: "#4ade80" },
+  selection_done: { label: "Concluído",       color: "#4ade80" },
 };
 
-const H = { "Content-Type": "application/json", "X-Admin-Token": ADMIN_TOKEN };
+function getAuthHeaders(): Record<string, string> {
+  const token = typeof window !== "undefined" ? sessionStorage.getItem("morthe_admin_token") : null;
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
 export default function AdminDashboard() {
+  const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [saEmail, setSaEmail] = useState("");
@@ -58,19 +65,25 @@ export default function AdminDashboard() {
   async function fetchClients() {
     setLoading(true);
     try {
-      const r = await fetch(`${API}/api/admin/clients`, { headers: H });
+      const r = await fetch(`${API}/api/admin/clients`, { headers: getAuthHeaders() });
+      if (r.status === 401) { router.push("/cliente"); return; }
       if (r.ok) setClients(await r.json());
     } finally { setLoading(false); }
   }
 
   async function fetchSaEmail() {
     try {
-      const r = await fetch(`${API}/api/admin/service-account-email`, { headers: H });
+      const r = await fetch(`${API}/api/admin/service-account-email`, { headers: getAuthHeaders() });
       if (r.ok) setSaEmail((await r.json()).email);
     } catch { /* silencioso */ }
   }
 
-  useEffect(() => { fetchClients(); fetchSaEmail(); }, []); // eslint-disable-line
+  useEffect(() => {
+    // Check if we have a token
+    const token = sessionStorage.getItem("morthe_admin_token");
+    if (!token) { router.push("/cliente"); return; }
+    fetchClients(); fetchSaEmail();
+  }, []); // eslint-disable-line
 
   function copyToClipboard(text: string, key: string) {
     navigator.clipboard.writeText(text);
@@ -82,7 +95,7 @@ export default function AdminDashboard() {
     if (!form.drive_gallery_url) { setUrlError("Cole o link primeiro."); setUrlStatus("error"); return; }
     setUrlStatus("checking");
     setUrlError("");
-    const r = await fetch(`${API}/api/admin/validate-folder?url=${encodeURIComponent(form.drive_gallery_url)}`, { headers: H });
+    const r = await fetch(`${API}/api/admin/validate-folder?url=${encodeURIComponent(form.drive_gallery_url)}`, { headers: getAuthHeaders()});
     const d = await r.json();
     if (d.valid) { setUrlStatus("ok"); }
     else { setUrlStatus("error"); setUrlError(d.error || "Pasta inacessível."); }
@@ -94,7 +107,7 @@ export default function AdminDashboard() {
     setSubmitting(true);
     try {
       const r = await fetch(`${API}/api/admin/clients`, {
-        method: "POST", headers: H,
+        method: "POST", headers: getAuthHeaders(),
         body: JSON.stringify({ ...form, session_date: form.session_date || null, notes: form.notes || null }),
       });
       const d = await r.json();
@@ -110,30 +123,30 @@ export default function AdminDashboard() {
 
   async function handleDelete(id: number, name: string) {
     if (!confirm(`Remover "${name}"? Os thumbnails em cache serão excluídos.`)) return;
-    await fetch(`${API}/api/admin/clients/${id}`, { method: "DELETE", headers: H });
+    await fetch(`${API}/api/admin/clients/${id}`, { method: "DELETE", headers: getAuthHeaders()});
     fetchClients();
   }
 
   async function handleSync(id: number) {
-    await fetch(`${API}/api/admin/clients/${id}/sync`, { method: "POST", headers: H });
+    await fetch(`${API}/api/admin/clients/${id}/sync`, { method: "POST", headers: getAuthHeaders()});
     fetchClients();
   }
 
   async function expandClient(c: Client) {
     if (expandedId === c.id) { setExpandedId(null); return; }
     setExpandedId(c.id);
-    const r = await fetch(`${API}/api/admin/clients/${c.id}/selections`, { headers: H });
+    const r = await fetch(`${API}/api/admin/clients/${c.id}/selections`, { headers: getAuthHeaders()});
     if (r.ok) { const d = await r.json(); setSelections(d.selections || []); }
     else setSelections([]);
   }
 
   async function handleLock(id: number) {
-    await fetch(`${API}/api/admin/clients/${id}/lock`, { method: "POST", headers: H });
+    await fetch(`${API}/api/admin/clients/${id}/lock`, { method: "POST", headers: getAuthHeaders()});
     fetchClients();
   }
 
   async function handleUnlock(id: number) {
-    await fetch(`${API}/api/admin/clients/${id}/unlock`, { method: "POST", headers: H });
+    await fetch(`${API}/api/admin/clients/${id}/unlock`, { method: "POST", headers: getAuthHeaders()});
     fetchClients();
   }
 
@@ -141,7 +154,7 @@ export default function AdminDashboard() {
     const val = parseInt(maxEdit[id] || "");
     if (!val || val < 1) { alert("Insira um número válido."); return; }
     await fetch(`${API}/api/admin/clients/${id}/max-selections`, {
-      method: "PUT", headers: H,
+      method: "PUT", headers: getAuthHeaders(),
       body: JSON.stringify({ max_selections: val }),
     });
     setMaxEdit(prev => { const n = { ...prev }; delete n[id]; return n; });

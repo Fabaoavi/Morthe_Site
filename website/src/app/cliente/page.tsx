@@ -4,8 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
-const ADMIN_CODE = "M0rTh3";        // Código especial que identifica admin
-const ADMIN_PASSWORD = "MSN0102";   // Senha do painel admin
+const ADMIN_TRIGGER = "admin"; // Typing "admin" as code triggers the admin login flow
 
 export default function ClientLoginPage() {
   const router = useRouter();
@@ -13,58 +12,78 @@ export default function ClientLoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  // Popup de senha admin
+  // Admin login modal
   const [showAdminModal, setShowAdminModal] = useState(false);
-  const [adminPassword, setAdminPassword] = useState("");
+  const [adminUser, setAdminUser] = useState("");
+  const [adminPass, setAdminPass] = useState("");
   const [adminError, setAdminError] = useState("");
+  const [adminLoading, setAdminLoading] = useState(false);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    const trimmed = code.trim();
+    const trimmed = code.trim().toLowerCase();
     if (!trimmed) return;
 
-    // ── Detecção de acesso admin ─────────────────────────────────────────
-    if (trimmed === ADMIN_CODE) {
+    // Admin access trigger
+    if (trimmed === ADMIN_TRIGGER) {
       setShowAdminModal(true);
-      setAdminPassword("");
+      setAdminUser("");
+      setAdminPass("");
       setAdminError("");
       return;
     }
 
-    // ── Login normal de cliente ──────────────────────────────────────────
+    // Normal client login
     setLoading(true);
     setError("");
     try {
       const res = await fetch(
-        `${API}/api/client/verify?code=${encodeURIComponent(trimmed)}`
+        `${API}/api/client/verify?code=${encodeURIComponent(code.trim())}`
       );
       const data = await res.json();
       if (data.valid) {
-        router.push(`/cliente/${trimmed}`);
+        router.push(`/cliente/${code.trim()}`);
       } else {
         setError("Código não encontrado. Verifique e tente novamente.");
       }
     } catch {
-      setError("Não foi possível conectar ao servidor. Tente novamente em instantes.");
+      setError("Não foi possível conectar ao servidor.");
     } finally {
       setLoading(false);
     }
   }
 
-  function handleAdminLogin(e: React.FormEvent) {
+  async function handleAdminLogin(e: React.FormEvent) {
     e.preventDefault();
-    if (adminPassword === ADMIN_PASSWORD) {
-      setShowAdminModal(false);
-      router.push("/admin");
-    } else {
-      setAdminError("Senha incorreta.");
-      setAdminPassword("");
+    if (!adminUser.trim() || !adminPass.trim()) return;
+
+    setAdminLoading(true);
+    setAdminError("");
+    try {
+      const res = await fetch(`${API}/api/admin/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: adminUser.trim(), password: adminPass }),
+      });
+      const data = await res.json();
+
+      if (res.ok && data.token) {
+        sessionStorage.setItem("morthe_admin_token", data.token);
+        setShowAdminModal(false);
+        router.push("/admin");
+      } else {
+        setAdminError(data.detail || "Credenciais incorretas.");
+        setAdminPass("");
+      }
+    } catch {
+      setAdminError("Erro de conexão com o servidor.");
+    } finally {
+      setAdminLoading(false);
     }
   }
 
   return (
     <main style={s.main}>
-      {/* ── Card de login ── */}
       <div style={s.card}>
         <p style={s.brand}>MORTHE</p>
         <h1 style={s.title}>Área do Cliente</h1>
@@ -92,23 +111,34 @@ export default function ClientLoginPage() {
         {error && <p style={s.error}>{error}</p>}
       </div>
 
-      {/* ── Modal de senha admin ── */}
+      {/* Admin Login Modal — authenticates via backend JWT */}
       {showAdminModal && (
         <div style={s.overlay} onClick={(e) => { if (e.target === e.currentTarget) setShowAdminModal(false); }}>
           <div style={s.modal}>
-            <h2 style={s.modalTitle}>🔐 Acesso Restrito</h2>
-            <p style={s.modalSubtitle}>Digite a senha para acessar o painel administrativo.</p>
+            <h2 style={s.modalTitle}>Acesso Administrativo</h2>
+            <p style={s.modalSubtitle}>Autentique-se para acessar o painel.</p>
 
-            <form onSubmit={handleAdminLogin} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <form onSubmit={handleAdminLogin} style={{ display: "flex", flexDirection: "column" as const, gap: 12 }}>
+              <input
+                style={s.input}
+                type="text"
+                placeholder="Usuário"
+                value={adminUser}
+                onChange={(e) => { setAdminUser(e.target.value); setAdminError(""); }}
+                autoFocus
+                autoComplete="username"
+              />
               <input
                 style={s.input}
                 type="password"
-                placeholder="Senha do administrador"
-                value={adminPassword}
-                onChange={(e) => { setAdminPassword(e.target.value); setAdminError(""); }}
-                autoFocus
+                placeholder="Senha"
+                value={adminPass}
+                onChange={(e) => { setAdminPass(e.target.value); setAdminError(""); }}
+                autoComplete="current-password"
               />
-              <button style={s.button} type="submit">Entrar no Painel</button>
+              <button style={s.button} type="submit" disabled={adminLoading}>
+                {adminLoading ? "Autenticando…" : "Entrar"}
+              </button>
             </form>
 
             {adminError && <p style={s.error}>{adminError}</p>}
@@ -197,7 +227,6 @@ const s: Record<string, React.CSSProperties> = {
     marginTop: 14,
     fontSize: 13,
   },
-  // Admin modal
   overlay: {
     position: "fixed",
     inset: 0,
