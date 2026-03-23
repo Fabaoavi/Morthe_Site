@@ -118,7 +118,7 @@ def sync_client_thumbnails(client: dict):
             wm = wm.resize((wm_w, wm_h), Image.LANCZOS)
             # Reduz opacidade para 10%
             r, g, b, a = wm.split()
-            a = a.point(lambda x: int(x * 0.10))
+            a = a.point(lambda x: int(x * 0.50))
             wm.putalpha(a)
             # Posição: centro da imagem
             pos = ((base.width - wm_w) // 2, (base.height - wm_h) // 2)

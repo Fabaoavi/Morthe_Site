@@ -329,23 +329,18 @@ export default function ClientDashboard() {
       {hasMoods && (
         <section style={s.section}>
           <h2 style={s.sTitle}>Moods</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(200px, 44vw), 1fr))", gap: 12 }}>
-            {moods.map(mood => (
-              <MoodCard
-                key={mood.id}
-                mood={mood}
-                expanded={expandedMood === mood.id}
-                onExpand={() => setExpandedMood(expandedMood === mood.id ? null : mood.id)}
-                onClose={() => setExpandedMood(null)}
-                thumbSrc={thumbSrc}
-                lightboxSrc={lightboxSrcFn}
-                onSelect={(file) => toggleSelect(file, mood.id)}
-                onLightbox={(file, idx) => setLightbox({ file, idx, source: "mood", moodId: mood.id })}
-                finalized={finalizeInfo.finalized}
-                limitReached={limitReached}
-              />
-            ))}
-          </div>
+          <MoodsContainer
+            moods={moods}
+            expandedMood={expandedMood}
+            onExpand={(id) => setExpandedMood(expandedMood === id ? null : id)}
+            onClose={() => setExpandedMood(null)}
+            thumbSrc={thumbSrc}
+            lightboxSrc={lightboxSrcFn}
+            onSelect={(file, moodId) => toggleSelect(file, moodId)}
+            onLightbox={(file, idx, moodId) => setLightbox({ file, idx, source: "mood", moodId })}
+            finalized={finalizeInfo.finalized}
+            limitReached={limitReached}
+          />
         </section>
       )}
 
@@ -498,6 +493,147 @@ export default function ClientDashboard() {
   );
 }
 
+// ─── VHS Animation Styles ────────────────────────────────────────────────────
+
+const VHS_STYLES = `
+@keyframes vhsOpen {
+  0%   { transform: scaleY(1) scaleX(1); opacity: 1; }
+  40%  { transform: scaleY(0.02) scaleX(1); opacity: 1; }
+  60%  { transform: scaleY(0.02) scaleX(0.0); opacity: 0.8; }
+  100% { transform: scaleY(0) scaleX(0); opacity: 0; }
+}
+@keyframes vhsPanelOpen {
+  0%   { max-height: 0; opacity: 0; }
+  100% { max-height: 80vh; opacity: 1; }
+}
+@keyframes menuSlideIn {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+`;
+
+// ─── Moods Container (centered + carousel if >3) ────────────────────────────
+
+interface MoodsContainerProps {
+  moods: Mood[];
+  expandedMood: string | null;
+  onExpand: (id: string) => void;
+  onClose: () => void;
+  thumbSrc: (f: DriveFile) => string;
+  lightboxSrc: (f: DriveFile) => string;
+  onSelect: (f: DriveFile, moodId: string) => void;
+  onLightbox: (f: DriveFile, idx: number, moodId: string) => void;
+  finalized: boolean;
+  limitReached: boolean;
+}
+
+function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, lightboxSrc, onSelect, onLightbox, finalized, limitReached }: MoodsContainerProps) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const useCarousel = moods.length > 3;
+
+  const scroll = (dir: "left" | "right") => {
+    if (!scrollRef.current) return;
+    const amount = scrollRef.current.clientWidth * 0.7;
+    scrollRef.current.scrollBy({ left: dir === "left" ? -amount : amount, behavior: "smooth" });
+  };
+
+  return (
+    <div style={{ position: "relative" }}>
+      <style>{VHS_STYLES}</style>
+
+      {/* Carousel arrows */}
+      {useCarousel && (
+        <>
+          <button onClick={() => scroll("left")} style={{ position: "absolute", left: -4, top: "50%", transform: "translateY(-50%)", zIndex: 10, background: "rgba(0,0,0,0.7)", border: "1px solid #333", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>‹</button>
+          <button onClick={() => scroll("right")} style={{ position: "absolute", right: -4, top: "50%", transform: "translateY(-50%)", zIndex: 10, background: "rgba(0,0,0,0.7)", border: "1px solid #333", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>›</button>
+        </>
+      )}
+
+      {/* Cards row */}
+      <div
+        ref={scrollRef}
+        style={{
+          display: "flex",
+          gap: 14,
+          justifyContent: useCarousel ? "flex-start" : "center",
+          overflowX: useCarousel ? "auto" : "visible",
+          scrollSnapType: useCarousel ? "x mandatory" : undefined,
+          scrollbarWidth: "none",
+          padding: useCarousel ? "0 24px" : "0",
+          flexWrap: useCarousel ? "nowrap" : "wrap",
+        }}
+      >
+        {moods.map(mood => (
+          <div key={mood.id} style={{ scrollSnapAlign: "center", flexShrink: 0 }}>
+            <MoodCard
+              mood={mood}
+              expanded={expandedMood === mood.id}
+              onExpand={() => onExpand(mood.id)}
+              onClose={onClose}
+              thumbSrc={thumbSrc}
+              lightboxSrc={lightboxSrc}
+              onSelect={(f) => onSelect(f, mood.id)}
+              onLightbox={(f, idx) => onLightbox(f, idx, mood.id)}
+              finalized={finalized}
+              limitReached={limitReached}
+            />
+          </div>
+        ))}
+      </div>
+
+      {/* Expanded panel — below cards, pushes content down */}
+      {expandedMood && (() => {
+        const mood = moods.find(m => m.id === expandedMood);
+        if (!mood) return null;
+        const selectedInMood = mood.files.filter(f => f.selected).length;
+        return (
+          <div style={{
+            marginTop: 14,
+            background: "#0f0f0f",
+            borderRadius: 14,
+            border: "1px solid #222",
+            overflow: "hidden",
+            animation: "vhsPanelOpen 0.4s ease-out",
+          }}>
+            {/* Panel header */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #1a1a1a" }}>
+              <div>
+                <h3 style={{ fontSize: 18, fontWeight: 700, color: "#fff", margin: 0 }}>{mood.title}</h3>
+                <p style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{mood.files.length} fotos{selectedInMood > 0 ? ` · ${selectedInMood} selecionadas` : ""}</p>
+              </div>
+              <button
+                onClick={onClose}
+                style={{ background: "rgba(255,255,255,0.08)", border: "none", borderRadius: "50%", width: 34, height: 34, color: "#888", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", transition: "color 0.2s" }}
+              >✕</button>
+            </div>
+            {/* Photo grid */}
+            <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(120px, 40vw), 1fr))", gap: 8, maxHeight: "65vh", overflowY: "auto" }}>
+              {mood.files.map((file, idx) => {
+                const isSelected = !!file.selected;
+                const showCheckbox = !finalized && (isSelected || !limitReached);
+                return (
+                  <div key={file.id} style={{ position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#1a1a1a", cursor: "pointer", outline: isSelected ? "3px solid #fff" : "none", outlineOffset: -3 }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={thumbSrc(file)} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} loading="lazy" onClick={() => onLightbox(file, idx, mood.id)} />
+                    {showCheckbox && (
+                      <button
+                        style={{ position: "absolute", top: 6, left: 6, width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", background: isSelected ? "#fff" : "rgba(0,0,0,0.55)", border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.4)" }}
+                        onClick={e => { e.stopPropagation(); onSelect(file, mood.id); }}
+                      >
+                        {isSelected && <span style={{ color: "#000", fontSize: 13, fontWeight: 700 }}>✓</span>}
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+    </div>
+  );
+}
+
 // ─── Mood Card Component ─────────────────────────────────────────────────────
 
 interface MoodCardProps {
@@ -513,11 +649,11 @@ interface MoodCardProps {
   limitReached: boolean;
 }
 
-function MoodCard({ mood, expanded, onExpand, onClose, thumbSrc, onSelect, onLightbox, finalized, limitReached }: MoodCardProps) {
+function MoodCard({ mood, expanded, onExpand, thumbSrc }: MoodCardProps) {
   const [slideIdx, setSlideIdx] = useState(0);
   const [hovered, setHovered] = useState(false);
+  const [closing, setClosing] = useState(false);
 
-  // Auto slideshow
   useEffect(() => {
     if (expanded || mood.files.length <= 1) return;
     const interval = setInterval(() => {
@@ -528,65 +664,38 @@ function MoodCard({ mood, expanded, onExpand, onClose, thumbSrc, onSelect, onLig
 
   const selectedInMood = mood.files.filter(f => f.selected).length;
 
-  if (expanded) {
-    return (
-      <div
-        style={{
-          gridColumn: "1 / -1",
-          background: "#111",
-          borderRadius: 12,
-          border: "1px solid #333",
-          overflow: "hidden",
-          animation: "moodExpand 0.35s ease-out",
-        }}
-      >
-        <style>{`@keyframes moodExpand { from { opacity: 0; max-height: 0; transform: scaleY(0.95); } to { opacity: 1; max-height: 2000px; transform: scaleY(1); } }`}</style>
-        {/* Mood header */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", borderBottom: "1px solid #222" }}>
-          <div>
-            <h3 style={{ fontSize: 18, fontWeight: 700, color: "#fff", margin: 0 }}>{mood.title}</h3>
-            <p style={{ fontSize: 12, color: "#555", marginTop: 2 }}>{mood.files.length} fotos{selectedInMood > 0 ? ` · ${selectedInMood} selecionadas` : ""}</p>
-          </div>
-          <button
-            onClick={onClose}
-            style={{ background: "rgba(255,255,255,0.1)", border: "none", borderRadius: "50%", width: 32, height: 32, color: "#fff", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-          >✕</button>
-        </div>
-        {/* Grid of files */}
-        <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(120px, 40vw), 1fr))", gap: 8 }}>
-          {mood.files.map((file, idx) => {
-            const isSelected = !!file.selected;
-            const showCheckbox = !finalized && (isSelected || !limitReached);
-            return (
-              <div key={file.id} style={{ position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#1a1a1a", cursor: "pointer", outline: isSelected ? "3px solid #fff" : "none", outlineOffset: -3 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={thumbSrc(file)} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} loading="lazy" onClick={() => onLightbox(file, idx)} />
-                {showCheckbox && (
-                  <button
-                    style={{ position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", background: isSelected ? "#fff" : "rgba(0,0,0,0.55)", border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.4)" }}
-                    onClick={e => { e.stopPropagation(); onSelect(file); }}
-                  >
-                    {isSelected && <span style={{ color: "#000", fontSize: 12, fontWeight: 700 }}>✓</span>}
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
+  const handleClick = () => {
+    if (expanded) return;
+    // VHS close animation on the card, then open panel
+    setClosing(true);
+    setTimeout(() => {
+      setClosing(false);
+      onExpand();
+    }, 350);
+  };
 
-  // Collapsed card — slideshow + hover title
   return (
     <div
-      style={{ position: "relative", aspectRatio: "1", borderRadius: 12, overflow: "hidden", background: "#111", cursor: "pointer", border: "1px solid #222", transition: "border-color 0.3s, transform 0.3s", ...(hovered ? { borderColor: "#555", transform: "scale(1.02)" } : {}) }}
-      onClick={onExpand}
+      style={{
+        position: "relative",
+        width: "min(200px, 44vw)",
+        aspectRatio: "1",
+        borderRadius: 12,
+        overflow: "hidden",
+        background: "#111",
+        cursor: expanded ? "default" : "pointer",
+        border: expanded ? "2px solid #fff" : "1px solid #222",
+        transition: "border-color 0.3s, transform 0.3s",
+        transform: hovered && !expanded ? "scale(1.03)" : "scale(1)",
+        animation: closing ? "vhsOpen 0.35s ease-in forwards" : undefined,
+        opacity: expanded ? 0.5 : 1,
+      }}
+      onClick={handleClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
       {/* Slideshow */}
-      {mood.files.map((file, idx) => (
+      {mood.files.slice(0, 5).map((file, idx) => (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           key={file.id}
@@ -595,13 +704,13 @@ function MoodCard({ mood, expanded, onExpand, onClose, thumbSrc, onSelect, onLig
           style={{
             position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
             transition: "opacity 0.8s ease-in-out",
-            opacity: idx === slideIdx ? 1 : 0,
+            opacity: idx === slideIdx % Math.min(mood.files.length, 5) ? 1 : 0,
           }}
           loading="lazy"
         />
       ))}
 
-      {/* Overlay + Title on hover */}
+      {/* Overlay + Title */}
       <div style={{
         position: "absolute", inset: 0,
         background: hovered ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.15)",
@@ -609,24 +718,25 @@ function MoodCard({ mood, expanded, onExpand, onClose, thumbSrc, onSelect, onLig
         display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
       }}>
         <h3 style={{
-          color: "#fff", fontSize: 20, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
+          color: "#fff", fontSize: "clamp(14px, 4vw, 20px)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.1em",
           opacity: hovered ? 1 : 0, transform: hovered ? "translateY(0)" : "translateY(8px)",
           transition: "opacity 0.3s, transform 0.3s",
           textShadow: "0 2px 8px rgba(0,0,0,0.8)",
+          textAlign: "center", padding: "0 8px",
         }}>
           {mood.title}
         </h3>
         <p style={{
-          color: "#aaa", fontSize: 12, marginTop: 4,
+          color: "#aaa", fontSize: 11, marginTop: 4,
           opacity: hovered ? 1 : 0, transition: "opacity 0.3s 0.05s",
         }}>
-          {mood.files.length} fotos{selectedInMood > 0 ? ` · ${selectedInMood} selecionadas` : ""}
+          {mood.files.length} fotos
         </p>
       </div>
 
       {/* Selection badge */}
       {selectedInMood > 0 && (
-        <div style={{ position: "absolute", top: 8, right: 8, background: "#fff", color: "#000", borderRadius: 12, padding: "2px 8px", fontSize: 11, fontWeight: 700 }}>
+        <div style={{ position: "absolute", top: 8, right: 8, background: "#fff", color: "#000", borderRadius: 12, padding: "2px 8px", fontSize: 11, fontWeight: 700, zIndex: 2 }}>
           {selectedInMood}
         </div>
       )}
