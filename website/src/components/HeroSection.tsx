@@ -32,20 +32,23 @@ export default function HeroSection() {
             }}
           />
 
-          <h1 className="text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white font-sans relative z-10 drop-shadow-md text-center">
-            Elevando a criatividade.<br />
-            Projetando o futuro.
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white font-sans relative z-10 drop-shadow-md text-center leading-tight">
+            Direção criativa.<br />
+            Visão autoral.<br />
+            <span style={{ color: 'var(--dynamic-color)', transition: 'color 1s ease' }}>
+              Resultado real.
+            </span>
           </h1>
         </div>
 
-        <p className="text-lg md:text-xl text-zinc-300 mb-10 max-w-2xl font-light drop-shadow">
-          Construímos experiências digitais com altíssima performance, focadas no essencial,
-          unindo design imersivo ao dark mode tecnológico.
+        <p className="text-base sm:text-lg md:text-xl text-zinc-400 mb-10 max-w-2xl font-light drop-shadow leading-relaxed">
+          Estúdio criativo especializado em arte, entretenimento, marcas e experiências.
+          Do conceito à execução.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
           <a
-            href="https://wa.me/5516982662148?text=Ol%C3%A1%2C%20gostaria%20de%20agendar%20uma%20reuni%C3%A3o!"
+            href="https://wa.me/5516982662148?text=Ol%C3%A1%2C%20gostaria%20de%20saber%20mais%20sobre%20os%20servi%C3%A7os%20da%20Morthe."
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex h-12 items-center justify-center rounded-md bg-white px-8 text-sm font-semibold text-zinc-950 shadow-sm transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 active:scale-95 hover:brightness-90"
@@ -54,10 +57,10 @@ export default function HeroSection() {
               transition: 'box-shadow 0.5s ease-out, background-color 0.15s ease-out'
             }}
           >
-            Agendar Reunião
+            Fale Conosco
           </a>
           <Link
-            href="#destaques"
+            href="/servicos"
             className="inline-flex h-12 items-center justify-center rounded-md border text-sm font-semibold px-8 shadow-sm transition-all duration-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300 active:scale-95 backdrop-blur-sm"
             style={{
               borderColor: isHovered ? 'var(--dynamic-color)' : 'rgba(255,255,255,0.2)',
@@ -67,7 +70,7 @@ export default function HeroSection() {
             onMouseEnter={() => setBtnHovered(true)}
             onMouseLeave={() => setBtnHovered(false)}
           >
-            Ver Projetos
+            Nossos Serviços
           </Link>
         </div>
       </div>
