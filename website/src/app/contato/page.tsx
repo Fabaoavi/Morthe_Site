@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 
-const WHATSAPP_NUMBER = '5500000000000'; // Substituir pelo número real
+const WHATSAPP_NUMBER = '5516982662148';
 const WHATSAPP_MESSAGE = encodeURIComponent('Olá! Gostaria de saber mais sobre os serviços da Morthe.');
 
 export default function ContatoPage() {
