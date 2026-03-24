@@ -21,6 +21,7 @@ export default function Header() {
   const [ctaHovered, setCtaHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [logoAnimKey, setLogoAnimKey] = useState(0);
+  const logoHovering = useRef(false);
   const drawerRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef(0);
 
@@ -47,7 +48,8 @@ export default function Header() {
           {/* Mobile: Hamburger (left) */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md border border-zinc-700 hover:border-zinc-500 transition-colors bg-zinc-900/80 backdrop-blur-sm"
+            className="md:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md border border-zinc-600 transition-colors"
+            style={{ background: "rgba(24, 24, 27, 0.92)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
             aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
             aria-expanded={menuOpen}
           >
@@ -83,17 +85,23 @@ export default function Header() {
               ))}
             </nav>
 
-            {/* Center logo — animated on hover (plays once, keeps last frame) */}
+            {/* Center logo — plays once on hover, keeps last frame */}
             <Link
               href="/"
               className="mx-8 flex-shrink-0"
-              onMouseEnter={() => setLogoAnimKey(k => k + 1)}
+              onMouseEnter={() => {
+                if (!logoHovering.current) {
+                  logoHovering.current = true;
+                  setLogoAnimKey(k => k + 1);
+                }
+              }}
+              onMouseLeave={() => { logoHovering.current = false; }}
             >
               <img
                 key={logoAnimKey}
-                src={logoAnimKey > 0 ? `/logo-anim.apng?v=${logoAnimKey}` : "/Logo_Branca.png"}
+                src={logoAnimKey > 0 ? `/logo-anim.apng?v=${logoAnimKey}` : "/logo-frame1.png"}
                 alt="Morthe"
-                className="h-11 w-auto object-contain transition-all duration-500 ease-out"
+                className="h-11 w-auto object-contain"
                 style={{
                   filter: navExpanded ? `drop-shadow(0 0 10px ${color})` : 'none',
                 }}

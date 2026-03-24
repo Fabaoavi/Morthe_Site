@@ -1006,8 +1006,8 @@ const s: Record<string, React.CSSProperties> = {
     gridTemplateColumns: "repeat(auto-fill, minmax(min(140px, 44vw), 1fr))",
     gap: 8,
   },
-  card: { position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#111", cursor: "pointer" },
-  img:  { width: "100%", height: "100%", objectFit: "cover", display: "block" },
+  card: { position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#111", cursor: "pointer", backgroundImage: "url(/loading.apng)", backgroundSize: "40px 40px", backgroundPosition: "center", backgroundRepeat: "no-repeat" },
+  img:  { width: "100%", height: "100%", objectFit: "cover", display: "block", color: "transparent", fontSize: 0 },
 
   checkbox: { position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s" },
   selectedBadge: { position: "absolute", top: 6, left: 6, width: 22, height: 22, borderRadius: 6, background: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#000" },
