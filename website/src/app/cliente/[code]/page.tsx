@@ -677,11 +677,18 @@ function MoodsContainer({ moods, expandedMood, onExpand, onClose, thumbSrc, onSe
             <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(120px, 40vw), 1fr))", gap: 8, maxHeight: "65vh", overflowY: "auto" }}>
               {mood.files.map((file, idx) => {
                 const isSelected = !!file.selected;
-                const showCheckbox = !finalized && (isSelected || !limitReached);
+                const processing = !file.cached;
+                const showCheckbox = !processing && !finalized && (isSelected || !limitReached);
                 return (
-                  <div key={file.id} style={{ position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#1a1a1a", cursor: "pointer", outline: isSelected ? "3px solid #fff" : "none", outlineOffset: -3 }}>
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={thumbSrc(file)} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} loading="lazy" onClick={() => onLightbox(file, idx, mood.id)} />
+                  <div key={file.id} style={{ position: "relative", aspectRatio: "1", borderRadius: 8, overflow: "hidden", background: "#1a1a1a", cursor: "pointer", outline: isSelected ? "3px solid #fff" : "none", outlineOffset: -3, backgroundImage: "url(/loading.apng)", backgroundSize: "40px 40px", backgroundPosition: "center", backgroundRepeat: "no-repeat" }}>
+                    {processing ? (
+                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <MortheLoader size="sm" />
+                      </div>
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img src={thumbSrc(file)} alt={file.name} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block", color: "transparent", fontSize: 0 }} loading="lazy" onClick={() => onLightbox(file, idx, mood.id)} />
+                    )}
                     {showCheckbox && (
                       <button
                         style={{ position: "absolute", top: 6, left: 6, width: 26, height: 26, borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", background: isSelected ? "#fff" : "rgba(0,0,0,0.55)", border: isSelected ? "2px solid #fff" : "2px solid rgba(255,255,255,0.4)" }}
