@@ -22,7 +22,7 @@ const servicosDropdown = [
   { href: '/servicos/hoteis', label: 'Hotéis, Gastronomia & Experiências', desc: 'Conteúdo, cobertura, identidade' },
 ];
 
-/* ── Mobile bottom nav ── */
+/* ── Mobile bottom nav — 5 items ── */
 const mobileNavItems = [
   { href: '/', label: 'Home', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -44,12 +44,22 @@ const mobileNavItems = [
       <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   )},
-  { href: '/contato', label: 'Contato', icon: (
+  { href: '/cliente', label: 'Cliente', icon: (
     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
     </svg>
   )},
 ];
+
+/* ── Inline style to kill ALL selection/highlight artifacts ── */
+const noSelectStyle: React.CSSProperties = {
+  userSelect: 'none',
+  WebkitUserSelect: 'none',
+  WebkitTapHighlightColor: 'transparent',
+  WebkitTouchCallout: 'none',
+  outline: 'none',
+  background: 'transparent',
+} as React.CSSProperties;
 
 export default function Header() {
   const { color } = useDynamicColor();
@@ -62,26 +72,23 @@ export default function Header() {
   /* ── Logo animation: both images always in DOM, swap via opacity ── */
   const [logoPlaying, setLogoPlaying] = useState(false);
   const [logoAnimSrc, setLogoAnimSrc] = useState("/logo-anim.apng");
-  const logoAnimRef = useRef<HTMLImageElement>(null);
   const logoPlayingRef = useRef(false);
 
   // Preload APNG on mount so there's no flash
   useEffect(() => {
-    const img = new Image();
+    const img = new window.Image();
     img.src = "/logo-anim.apng";
   }, []);
 
   const handleLogoEnter = useCallback(() => {
     if (logoPlayingRef.current) return;
     logoPlayingRef.current = true;
-    // Force reload the APNG by cache-busting to restart animation
     setLogoAnimSrc(`/logo-anim.apng?t=${Date.now()}`);
     setLogoPlaying(true);
   }, []);
 
   const handleLogoLeave = useCallback(() => {
     logoPlayingRef.current = false;
-    // Keep showing the last frame (don't reset to static)
   }, []);
 
   const openDropdown = () => {
@@ -96,13 +103,37 @@ export default function Header() {
 
   return (
     <>
+      {/* Global CSS to kill selection highlight on logo */}
+      <style>{`
+        .logo-no-select,
+        .logo-no-select * {
+          -webkit-user-select: none !important;
+          user-select: none !important;
+          -webkit-tap-highlight-color: transparent !important;
+          -webkit-touch-callout: none !important;
+          outline: none !important;
+        }
+        .logo-no-select:focus,
+        .logo-no-select:focus-visible,
+        .logo-no-select:active,
+        .logo-no-select:hover {
+          outline: none !important;
+          box-shadow: none !important;
+          background: transparent !important;
+          -webkit-tap-highlight-color: transparent !important;
+        }
+        .logo-no-select img {
+          pointer-events: none;
+        }
+      `}</style>
+
       <header className="sticky top-0 z-[70] w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-md dynamic-transition">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex h-20 items-center">
+          <div className="flex h-20 items-center justify-center relative">
 
             {/* ── Desktop: Centered nav with expanding links ── */}
             <div
-              className="hidden md:flex items-center justify-center absolute left-1/2 -translate-x-1/2"
+              className="hidden md:flex items-center justify-center"
               onMouseEnter={() => setNavExpanded(true)}
               onMouseLeave={() => { setNavExpanded(false); setHoveredLink(null); setDropdownOpen(false); }}
             >
@@ -186,48 +217,43 @@ export default function Header() {
                 ))}
               </nav>
 
-              {/* Center logo — both images stacked, swap via opacity (no flash) */}
+              {/* Center logo — both images stacked, NO selection artifacts */}
               <Link
                 href="/"
-                className="mx-8 flex-shrink-0 relative"
-                style={{
-                  userSelect: 'none',
-                  WebkitUserSelect: 'none',
-                  WebkitTapHighlightColor: 'transparent',
-                  outline: 'none',
-                }}
+                className="logo-no-select mx-8 flex-shrink-0 relative block"
+                style={noSelectStyle}
                 onMouseEnter={handleLogoEnter}
                 onMouseLeave={handleLogoLeave}
                 draggable={false}
+                tabIndex={-1}
               >
-                {/* Static first frame — visible until animation starts */}
+                {/* Static first frame */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   src="/logo-frame1.png"
                   alt="Morthe"
                   className="h-[70px] w-auto object-contain"
                   style={{
+                    ...noSelectStyle,
                     opacity: logoPlaying ? 0 : 1,
                     transition: 'opacity 0.05s ease',
                     filter: navExpanded ? `drop-shadow(0 0 10px ${color})` : 'none',
-                    userSelect: 'none',
-                    WebkitUserDrag: 'none',
+                    pointerEvents: 'none',
                   } as React.CSSProperties}
                   draggable={false}
                 />
-                {/* Animated APNG — overlaid on top, shown when playing */}
+                {/* Animated APNG — overlaid */}
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  ref={logoAnimRef}
                   src={logoAnimSrc}
                   alt=""
                   className="h-[70px] w-auto object-contain absolute inset-0"
                   style={{
+                    ...noSelectStyle,
                     opacity: logoPlaying ? 1 : 0,
                     transition: 'opacity 0.05s ease',
                     filter: navExpanded ? `drop-shadow(0 0 10px ${color})` : 'none',
-                    userSelect: 'none',
-                    WebkitUserDrag: 'none',
+                    pointerEvents: 'none',
                   } as React.CSSProperties}
                   draggable={false}
                 />
@@ -255,28 +281,26 @@ export default function Header() {
               </nav>
             </div>
 
-            {/* ── Mobile: Logo centered — bigger ── */}
+            {/* ── Mobile: Logo centered ── */}
             <Link
               href="/"
-              className="md:hidden flex-1 flex justify-center"
-              style={{
-                WebkitTapHighlightColor: 'transparent',
-                userSelect: 'none',
-              }}
+              className="logo-no-select md:hidden"
+              style={noSelectStyle}
+              tabIndex={-1}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src="/logo-frame1.png"
                 alt="Morthe"
-                className="h-16 w-auto object-contain"
-                style={{ userSelect: 'none' }}
+                className="h-14 w-auto object-contain"
+                style={{ ...noSelectStyle, pointerEvents: 'none' } as React.CSSProperties}
                 draggable={false}
               />
             </Link>
 
-            {/* ── Desktop CTA — user icon, pushed to far right ── */}
+            {/* ── Desktop CTA — user icon, absolute right ── */}
             <div
-              className="ml-auto relative hidden md:block"
+              className="absolute right-4 sm:right-6 lg:right-8 hidden md:block"
               onMouseEnter={() => setCtaHovered(true)}
               onMouseLeave={() => setCtaHovered(false)}
             >
