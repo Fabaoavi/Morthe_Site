@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useDynamicColor } from './DynamicColorProvider';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 const leftLinks = [
   { href: '/', label: 'Início' },
@@ -20,6 +20,8 @@ export default function Header() {
   const [navExpanded, setNavExpanded] = useState(false);
   const [ctaHovered, setCtaHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const drawerRef = useRef<HTMLDivElement>(null);
+  const touchStartX = useRef(0);
 
   useEffect(() => {
     const handleResize = () => {
@@ -170,46 +172,88 @@ export default function Header() {
         </div>
       </div>
 
-      {/* Mobile Menu Overlay — z-[60] to sit above everything */}
-      {menuOpen && (
-        <div
-          className="fixed inset-0 top-16 z-[60] bg-zinc-950 md:hidden"
-          style={{ background: '#09090b' }}
-        >
-          <nav className="flex flex-col items-center justify-center gap-10 pt-20 px-6">
-            {[...leftLinks, ...rightLinks].map((link, i) => (
-              <Link
-                key={link.href}
-                href={link.href}
-                onClick={() => setMenuOpen(false)}
-                className="text-2xl font-medium"
-                style={{
-                  color: '#d4d4d8',
-                  animation: `menuSlideIn 0.3s ease-out ${i * 60}ms both`,
-                }}
-              >
-                {link.label}
-              </Link>
-            ))}
+      {/* Mobile Drawer — slides from left */}
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-[80] md:hidden transition-opacity duration-300"
+        style={{
+          background: 'rgba(0,0,0,0.5)',
+          opacity: menuOpen ? 1 : 0,
+          pointerEvents: menuOpen ? 'auto' : 'none',
+        }}
+        onClick={() => setMenuOpen(false)}
+      />
 
-            {/* CTA in mobile menu */}
-            <Link
-              href="/cliente"
-              onClick={() => setMenuOpen(false)}
-              className="mt-4 inline-flex items-center gap-2 rounded-full border border-zinc-700 px-6 py-3 text-sm font-medium text-zinc-300"
-              style={{ animation: `menuSlideIn 0.3s ease-out ${4 * 60}ms both` }}
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              Área do Cliente
-            </Link>
-          </nav>
-
-          <style>{`@keyframes menuSlideIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }`}</style>
+      {/* Drawer panel */}
+      <div
+        ref={drawerRef}
+        className="fixed top-0 left-0 h-full w-[280px] z-[90] md:hidden flex flex-col transition-transform duration-300 ease-out"
+        style={{
+          transform: menuOpen ? 'translateX(0)' : 'translateX(-100%)',
+          background: 'rgba(9, 9, 11, 0.97)',
+          backdropFilter: 'blur(20px)',
+          WebkitBackdropFilter: 'blur(20px)',
+          boxShadow: menuOpen ? '4px 0 25px rgba(0,0,0,0.5)' : 'none',
+        }}
+        onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
+        onTouchEnd={(e) => {
+          const delta = e.changedTouches[0].clientX - touchStartX.current;
+          if (delta < -60) setMenuOpen(false);
+        }}
+      >
+        {/* Drawer header — logo */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800/50">
+          <Link href="/" onClick={() => setMenuOpen(false)}>
+            <img src="/Logo_Branca.png" alt="Morthe" className="h-8 w-auto object-contain" />
+          </Link>
+          <button
+            onClick={() => setMenuOpen(false)}
+            className="w-8 h-8 flex items-center justify-center rounded-md text-zinc-500 hover:text-zinc-300 transition-colors"
+            aria-label="Fechar menu"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+            </svg>
+          </button>
         </div>
-      )}
+
+        {/* Navigation links */}
+        <nav className="flex flex-col gap-1 px-4 pt-6 flex-1">
+          {[...leftLinks, ...rightLinks].map((link, i) => (
+            <Link
+              key={link.href}
+              href={link.href}
+              onClick={() => setMenuOpen(false)}
+              className="flex items-center gap-3 px-3 py-3 rounded-lg text-[15px] font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50 transition-all duration-200"
+              style={{
+                animation: menuOpen ? `drawerSlideIn 0.3s ease-out ${i * 50}ms both` : 'none',
+              }}
+            >
+              {link.label}
+            </Link>
+          ))}
+        </nav>
+
+        {/* CTA at bottom */}
+        <div className="px-4 pb-8 pt-4 border-t border-zinc-800/50">
+          <Link
+            href="/cliente"
+            onClick={() => setMenuOpen(false)}
+            className="flex items-center justify-center gap-2 w-full rounded-full border border-zinc-700 px-5 py-3 text-sm font-medium text-zinc-300 hover:bg-zinc-800/50 transition-colors"
+            style={{
+              animation: menuOpen ? `drawerSlideIn 0.3s ease-out 250ms both` : 'none',
+            }}
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            Área do Cliente
+          </Link>
+        </div>
+
+        <style>{`@keyframes drawerSlideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }`}</style>
+      </div>
     </header>
   );
 }
