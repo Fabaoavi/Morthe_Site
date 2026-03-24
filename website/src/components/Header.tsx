@@ -43,13 +43,13 @@ export default function Header() {
   return (
     <header className="sticky top-0 z-[70] w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-md dynamic-transition">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center">
+        <div className="flex h-20 items-center">
 
           {/* Mobile: Hamburger (left) */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md border border-zinc-600 transition-colors"
-            style={{ background: "rgba(24, 24, 27, 0.92)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)" }}
+            className="md:hidden flex flex-col justify-center items-center w-10 h-10 rounded-lg transition-colors"
+            style={{ background: "#27272a", border: "1px solid #52525b" }}
             aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
             aria-expanded={menuOpen}
           >
@@ -101,7 +101,7 @@ export default function Header() {
                 key={logoAnimKey}
                 src={logoAnimKey > 0 ? `/logo-anim.apng?v=${logoAnimKey}` : "/logo-frame1.png"}
                 alt="Morthe"
-                className="h-11 w-auto object-contain"
+                className="h-[70px] w-auto object-contain"
                 style={{
                   filter: navExpanded ? `drop-shadow(0 0 10px ${color})` : 'none',
                 }}
@@ -133,9 +133,9 @@ export default function Header() {
           {/* Mobile: Logo centered */}
           <Link href="/" className="md:hidden flex-1 flex justify-center">
             <img
-              src="/Logo_Branca.png"
+              src="/logo-frame1.png"
               alt="Morthe"
-              className="h-9 w-auto object-contain"
+              className="h-12 w-auto object-contain"
             />
           </Link>
 
