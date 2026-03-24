@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import MortheLoader from "@/components/MortheLoader";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -53,6 +54,7 @@ export default function AdminDashboard() {
   const [toast, setToast] = useState("");
   const [copied, setCopied] = useState("");
   const syncPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [syncProgressMap, setSyncProgressMap] = useState<Record<number, { percent: number; processed: number; total: number }>>({});
 
   // ── Data fetching ──
   const fetchClients = useCallback(async () => {
@@ -108,7 +110,7 @@ export default function AdminDashboard() {
     showToast("Sync iniciado...");
     fetchClients();
 
-    // Start polling every 5s
+    // Start polling every 3s with progress
     if (syncPollRef.current) clearInterval(syncPollRef.current);
     syncPollRef.current = setInterval(async () => {
       const r = await fetch(`${API}/api/admin/clients`, { headers: getAuthHeaders() });
@@ -116,13 +118,26 @@ export default function AdminDashboard() {
         const data: Client[] = await r.json();
         setClients(data);
         const client = data.find(c => c.id === id);
+
+        // Fetch sync progress for this client
+        if (client?.status === "syncing") {
+          try {
+            const pr = await fetch(`${API}/api/client/sync-progress?code=${encodeURIComponent(client.code)}`);
+            if (pr.ok) {
+              const pg = await pr.json();
+              setSyncProgressMap(prev => ({ ...prev, [id]: { percent: pg.percent, processed: pg.processed, total: pg.total } }));
+            }
+          } catch { /* ignore */ }
+        }
+
         if (client && client.status !== "syncing") {
           if (syncPollRef.current) clearInterval(syncPollRef.current);
           syncPollRef.current = null;
+          setSyncProgressMap(prev => { const n = { ...prev }; delete n[id]; return n; });
           showToast("Sync concluído!");
         }
       }
-    }, 5000);
+    }, 3000);
   }
 
   useEffect(() => {
@@ -137,7 +152,7 @@ export default function AdminDashboard() {
     done: clients.filter(c => c.status === "selection_done").length,
   };
 
-  if (loading) return <div style={{ minHeight: "100vh", background: "#09090b", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ width: 36, height: 36, border: "3px solid #222", borderTop: "3px solid #fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /></div>;
+  if (loading) return <MortheLoader fullscreen />;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#09090b", color: "#fff" }}>
@@ -222,6 +237,7 @@ export default function AdminDashboard() {
               copy={copy}
               copied={copied}
               showToast={showToast}
+              syncProgressMap={syncProgressMap}
             />
           )}
         </div>
@@ -347,7 +363,7 @@ function NewClientView({ onCreated }: { onCreated: () => void }) {
 
 // ─── Client Detail View ──────────────────────────────────────────────────────
 
-function ClientDetailView({ client, onSync, onRefresh, onDelete, copy, copied, showToast }: {
+function ClientDetailView({ client, onSync, onRefresh, onDelete, copy, copied, showToast, syncProgressMap }: {
   client: Client;
   onSync: () => void;
   onRefresh: () => void;
@@ -355,6 +371,7 @@ function ClientDetailView({ client, onSync, onRefresh, onDelete, copy, copied, s
   copy: (t: string, k: string) => void;
   copied: string;
   showToast: (msg: string) => void;
+  syncProgressMap: Record<number, { percent: number; processed: number; total: number }>;
 }) {
   const [selections, setSelections] = useState<Selection[]>([]);
   const [selLoading, setSelLoading] = useState(false);
@@ -446,7 +463,12 @@ function ClientDetailView({ client, onSync, onRefresh, onDelete, copy, copied, s
           style={{ ...btnAction, borderColor: "#a78bfa", color: "#a78bfa" }}
         >
           {client.status === "syncing" ? (
-            <><span style={{ display: "inline-block", animation: "spin 1s linear infinite", marginRight: 6 }}>↻</span>Sincronizando...</>
+            <>
+              <span style={{ display: "inline-block", animation: "spin 1s linear infinite", marginRight: 6 }}>↻</span>
+              {syncProgressMap[client.id]
+                ? `${syncProgressMap[client.id].percent}% (${syncProgressMap[client.id].processed}/${syncProgressMap[client.id].total})`
+                : "Sincronizando..."}
+            </>
           ) : "↻ Sincronizar"}
         </button>
 

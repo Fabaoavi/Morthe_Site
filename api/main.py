@@ -17,7 +17,7 @@ from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.oauth2.service_account import Credentials
@@ -62,6 +62,9 @@ SERVICE_ACCOUNT_PATH = os.environ.get(
 # Cache de thumbnails — servido estaticamente pelo FastAPI
 THUMB_CACHE_DIR = os.path.join(DATA_DIR, "thumb_cache")
 os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
+
+# Sync progress tracking (in-memory, per client code)
+sync_progress: dict[str, dict] = {}
 
 # Slideshow da home — em produção fica em DATA_DIR para persistir
 SYNC_DIR      = os.path.join(DATA_DIR, "destaques_sync")
@@ -190,14 +193,49 @@ def sync_client_thumbnails(client: dict):
             supportsAllDrives=True, includeItemsFromAllDrives=True, pageSize=50,
         ).execute().get("files", [])
 
-        total = len(gallery_files) + len(mood_files)
-        print(f"[SYNC] {len(gallery_files)} fotos de galeria + {len(mood_files)} moodboard")
+        # ── Count all files first (gallery + moodboard + mood folders) ──
+        # Also pre-fetch mood folder contents for total count
+        mood_folder_query = (
+            f"'{folder_id}' in parents "
+            f"and mimeType = 'application/vnd.google-apps.folder' "
+            f"and name contains 'Mood_' "
+            f"and trashed = false"
+        )
+        mood_folders = service.files().list(
+            q=mood_folder_query,
+            fields="files(id, name)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute().get("files", [])
+
+        mood_folder_files: dict[str, list] = {}
+        for mf in mood_folders:
+            mood_images_query = (
+                f"'{mf['id']}' in parents "
+                f"and mimeType contains 'image/' "
+                f"and trashed = false"
+            )
+            mood_images = service.files().list(
+                q=mood_images_query,
+                fields="files(id, name)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                pageSize=200,
+            ).execute().get("files", [])
+            mood_folder_files[mf["id"]] = mood_images
+
+        total_mood_images = sum(len(v) for v in mood_folder_files.values())
+        total = len(gallery_files) + len(mood_files) + total_mood_images
+        print(f"[SYNC] {len(gallery_files)} galeria + {len(mood_files)} moodboard + {total_mood_images} moods = {total} total")
 
         synced = 0
+        sync_progress[code] = {"total": total, "processed": 0}
+
         for f in gallery_files:
             try:
                 _process_file(service, f["id"], f["name"], cache_dir)
                 synced += 1
+                sync_progress[code]["processed"] = synced
                 print(f"[SYNC] galeria {synced}/{total} — {f['name']}")
             except Exception as e:
                 print(f"[WARN] Erro em '{f['name']}': {e}")
@@ -206,58 +244,37 @@ def sync_client_thumbnails(client: dict):
             try:
                 _process_file(service, f["id"], f["name"], mood_dir)
                 synced += 1
+                sync_progress[code]["processed"] = synced
                 print(f"[SYNC] moodboard {synced}/{total} — {f['name']}")
             except Exception as e:
                 print(f"[WARN] Erro em '{f['name']}': {e}")
 
         # ── Sync moods (subpastas Mood_*) ─────────────────────────────
         try:
-            mood_folder_query = (
-                f"'{folder_id}' in parents "
-                f"and mimeType = 'application/vnd.google-apps.folder' "
-                f"and name contains 'Mood_' "
-                f"and trashed = false"
-            )
-            mood_folders = service.files().list(
-                q=mood_folder_query,
-                fields="files(id, name)",
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
-            ).execute().get("files", [])
-
             for mf in mood_folders:
                 safe_name = re.sub(r'[^\w\-]', '_', mf["name"].lower())
                 mood_cache = os.path.join(cache_dir, safe_name)
                 os.makedirs(mood_cache, exist_ok=True)
 
-                mood_images_query = (
-                    f"'{mf['id']}' in parents "
-                    f"and mimeType contains 'image/' "
-                    f"and trashed = false"
-                )
-                mood_images = service.files().list(
-                    q=mood_images_query,
-                    fields="files(id, name)",
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True,
-                    pageSize=200,
-                ).execute().get("files", [])
-
+                mood_images = mood_folder_files.get(mf["id"], [])
                 print(f"[SYNC] Mood '{mf['name']}': {len(mood_images)} imagens")
                 for mi in mood_images:
                     try:
                         _process_file(service, mi["id"], mi["name"], mood_cache)
                         synced += 1
+                        sync_progress[code]["processed"] = synced
                     except Exception as e:
                         print(f"[WARN] Mood '{mf['name']}' / '{mi['name']}': {e}")
         except Exception as e:
             print(f"[WARN] Erro ao sync moods: {e}")
 
         database.update_client(client_id, status="gallery_ready")
+        sync_progress.pop(code, None)
         print(f"[SYNC] Concluído '{client['name']}': {synced} arquivos.")
 
     except Exception as e:
         print(f"[ERROR] Falha no sync para '{code}': {e}")
+        sync_progress.pop(code, None)
         database.update_client(client_id, status="pending")
 
 app = FastAPI(title="Morthe API", version="2.0.0")
@@ -770,17 +787,18 @@ def get_gallery(code: str = Query(...)):
             if drive_thumb:
                 drive_thumb = re.sub(r"=s\d+", "=s400", drive_thumb)
 
+            is_cached = cached_thumb is not None
             gallery.append({
                 "id": file_id,
                 "name": f["name"],
                 # cachedThumbUrl: URL estática do servidor (preferido)
                 "cachedThumbUrl": cached_thumb,
                 "cachedMdUrl":    cached_md,
-                # thumbnailUrl: fallback Google CDN
-                "thumbnailUrl": drive_thumb or None,
-                "proxyUrl": f"/api/client/file/{file_id}?code={code}",
+                # SECURITY: Never expose raw URLs when watermarked cache doesn't exist
+                "thumbnailUrl": None if not is_cached else (drive_thumb or None),
+                "proxyUrl": f"/api/client/file/{file_id}?code={code}" if is_cached else None,
                 "selected": file_id in selected_ids,
-                "cached": cached_thumb is not None,
+                "cached": is_cached,
             })
 
         # Atualiza status se ainda estava pending
@@ -800,6 +818,19 @@ def get_gallery(code: str = Query(...)):
         raise HTTPException(
             status_code=500, detail=f"Falha ao buscar galeria do Drive: {str(e)}"
         )
+
+
+@app.get("/api/client/sync-progress")
+def get_sync_progress(code: str = Query(...)):
+    """Retorna o progresso da sincronização de thumbnails."""
+    client = get_client_or_404(code)
+    progress = sync_progress.get(code)
+    if progress:
+        total = progress["total"]
+        processed = progress["processed"]
+        percent = round((processed / total * 100) if total > 0 else 0)
+        return {"syncing": True, "total": total, "processed": processed, "percent": percent, "status": client["status"]}
+    return {"syncing": False, "total": 0, "processed": 0, "percent": 100, "status": client["status"]}
 
 
 @app.get("/api/client/moodboard")
@@ -952,15 +983,17 @@ def get_moods(code: str = Query(...)):
                 if drive_thumb:
                     drive_thumb = re.sub(r"=s\d+", "=s400", drive_thumb)
 
+                is_cached = cached_thumb is not None
                 mood_files.append({
                     "id": file_id,
                     "name": f["name"],
                     "cachedThumbUrl": cached_thumb,
                     "cachedMdUrl": cached_md,
-                    "thumbnailUrl": drive_thumb or None,
-                    "proxyUrl": f"/api/client/file/{file_id}?code={code}",
+                    # SECURITY: Never expose raw URLs when watermarked cache doesn't exist
+                    "thumbnailUrl": None if not is_cached else (drive_thumb or None),
+                    "proxyUrl": f"/api/client/file/{file_id}?code={code}" if is_cached else None,
                     "selected": file_id in selected_ids,
-                    "cached": cached_thumb is not None,
+                    "cached": is_cached,
                 })
 
             moods.append({
@@ -986,42 +1019,31 @@ def get_moods(code: str = Query(...)):
 @app.get("/api/client/file/{file_id}")
 def stream_file(file_id: str, code: str = Query(...)):
     """
-    Proxy de streaming: busca o arquivo do Drive e entrega ao browser sem armazenar em disco.
-    O arquivo é transmitido em memória (BytesIO) e descartado após a resposta.
+    Proxy de streaming: serve a versão cacheada (com watermark) se existir.
+    Se não existir cache, retorna 403 para impedir acesso à imagem sem watermark.
     """
-    client = get_client_or_404(code)  # Garante que o código é válido antes de servir
+    client = get_client_or_404(code)
 
-    try:
-        service = get_drive_service()
-        file_meta = service.files().get(
-            fileId=file_id,
-            fields="id,name,mimeType",
-            supportsAllDrives=True,
-        ).execute()
+    # SECURITY: Always prefer watermarked cached version
+    cache_dir = os.path.join(THUMB_CACHE_DIR, code)
+    md_cache = os.path.join(cache_dir, f"{file_id}_md.webp")
 
-        request = service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
+    # Also check inside mood subdirectories
+    if not os.path.exists(md_cache):
+        for subdir in os.listdir(cache_dir) if os.path.isdir(cache_dir) else []:
+            subpath = os.path.join(cache_dir, subdir, f"{file_id}_md.webp")
+            if os.path.exists(subpath):
+                md_cache = subpath
+                break
 
-        fh.seek(0)
-        mime = file_meta.get("mimeType", "image/jpeg")
-        filename = file_meta.get("name", file_id)
+    if os.path.exists(md_cache):
+        return FileResponse(md_cache, media_type="image/webp")
 
-        return StreamingResponse(
-            fh,
-            media_type=mime,
-            headers={"Content-Disposition": f'inline; filename="{filename}"'},
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Falha ao transmitir arquivo do Drive: {str(e)}"
-        )
+    # No cached version — block access to raw image
+    raise HTTPException(
+        status_code=403,
+        detail="Imagem ainda em processamento. Aguarde a sincronização."
+    )
 
 
 @app.post("/api/client/select")

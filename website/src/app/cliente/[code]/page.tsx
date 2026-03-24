@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
+import MortheLoader from "@/components/MortheLoader";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -72,6 +73,7 @@ export default function ClientDashboard() {
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ syncing: boolean; percent: number; processed: number; total: number }>({ syncing: false, percent: 100, processed: 0, total: 0 });
 
   // Detect mobile
   useEffect(() => {
@@ -80,6 +82,24 @@ export default function ClientDashboard() {
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
+
+  // Poll sync progress when syncing
+  useEffect(() => {
+    if (info?.status !== "syncing") return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API}/api/client/sync-progress?code=${encodeURIComponent(code)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSyncProgress(data);
+          if (!data.syncing) fetchData(); // Sync done, refresh gallery
+        }
+      } catch { /* ignore */ }
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [info?.status, code]);
 
   function showToast(msg: unknown) {
     const text = typeof msg === "string" ? msg : Array.isArray(msg) ? "Erro no servidor." : String(msg);
@@ -249,20 +269,20 @@ export default function ClientDashboard() {
 
   function thumbSrc(file: DriveFile) {
     if (file.cachedThumbUrl) return `${API}${file.cachedThumbUrl}`;
-    return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+    // No cached watermarked version — return empty (placeholder shown by UI)
+    return "";
   }
   function lightboxSrcFn(file: DriveFile) {
     if (file.cachedMdUrl) return `${API}${file.cachedMdUrl}`;
-    return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+    return "";
+  }
+  function isProcessing(file: DriveFile) {
+    return !file.cached;
   }
 
   const hasMoods = moods.length > 0;
 
-  if (loading) return (
-    <div style={s.center}>
-      <div style={s.spinner} />
-    </div>
-  );
+  if (loading) return <MortheLoader fullscreen />;
   if (error) return <div style={s.center}><p style={{ color: "#f87171" }}>{error}</p></div>;
   if (!info) return null;
 
@@ -288,7 +308,20 @@ export default function ClientDashboard() {
 
       {/* ── Banners ── */}
       {info.status === "syncing" && (
-        <div style={s.banner}>Preparando sua galeria em alta qualidade... aguarde.</div>
+        <div style={s.banner}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/loading.apng" alt="" width={28} height={28} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div>Processando fotos... {syncProgress.syncing ? `${syncProgress.percent}%` : ""}</div>
+              {syncProgress.syncing && syncProgress.total > 0 && (
+                <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 2, background: "#fff", transition: "width 0.5s ease", width: `${syncProgress.percent}%` }} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
       {finalizeInfo.finalized && (
         <div style={{ ...s.banner, background: "#052e16", borderColor: "#166534", color: "#4ade80" }}>
@@ -373,7 +406,8 @@ export default function ClientDashboard() {
             <div style={s.grid}>
               {gallery.map((file, idx) => {
                 const isSelected = !!file.selected;
-                const showCheckbox = !finalizeInfo.finalized && (isSelected || !limitReached);
+                const processing = isProcessing(file);
+                const showCheckbox = !processing && !finalizeInfo.finalized && (isSelected || !limitReached);
                 return (
                   <div
                     key={file.id}
@@ -383,14 +417,23 @@ export default function ClientDashboard() {
                       outlineOffset: -3,
                     }}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={thumbSrc(file)}
-                      alt={file.name}
-                      style={s.img}
-                      loading="lazy"
-                      onClick={() => setLightbox({ file, idx, source: "gallery" })}
-                    />
+                    {processing ? (
+                      /* Placeholder for images still being watermarked */
+                      <div style={{ ...s.img, display: "flex", alignItems: "center", justifyContent: "center", background: "#111" }}>
+                        <MortheLoader size="sm" />
+                      </div>
+                    ) : (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={thumbSrc(file)}
+                          alt={file.name}
+                          style={s.img}
+                          loading="lazy"
+                          onClick={() => setLightbox({ file, idx, source: "gallery" })}
+                        />
+                      </>
+                    )}
                     {showCheckbox && (
                       <button
                         style={{
@@ -472,8 +515,14 @@ export default function ClientDashboard() {
               onClick={() => setLightbox({ ...lightbox, file: lightboxFiles[lightbox.idx + 1], idx: lightbox.idx + 1 })}>›</button>
           )}
 
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightboxSrcFn(lightbox.file)} alt={lightbox.file.name} style={s.lightboxImg} />
+          {isProcessing(lightbox.file) ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
+              <MortheLoader size="md" message="Processando..." />
+            </div>
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={lightboxSrcFn(lightbox.file)} alt={lightbox.file.name} style={s.lightboxImg} />
+          )}
 
           <div style={s.lightboxFooter}>
             <span style={{ color: "#ccc", fontSize: 14, flex: 1 }}>{lightbox.file.name}</span>
