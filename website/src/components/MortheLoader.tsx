@@ -6,7 +6,7 @@ interface MortheLoaderProps {
   message?: string;
 }
 
-const sizes = { sm: 60, md: 120, lg: 200 };
+const sizes = { sm: 60, md: 140, lg: 220 };
 
 export default function MortheLoader({ size = "md", fullscreen = false, message }: MortheLoaderProps) {
   const px = sizes[size];

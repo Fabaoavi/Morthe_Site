@@ -20,6 +20,7 @@ export default function Header() {
   const [navExpanded, setNavExpanded] = useState(false);
   const [ctaHovered, setCtaHovered] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [logoAnimKey, setLogoAnimKey] = useState(0);
   const drawerRef = useRef<HTMLDivElement>(null);
   const touchStartX = useRef(0);
 
@@ -46,7 +47,7 @@ export default function Header() {
           {/* Mobile: Hamburger (left) */}
           <button
             onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md border border-zinc-700 hover:border-zinc-500 transition-colors"
+            className="md:hidden flex flex-col justify-center items-center w-9 h-9 rounded-md border border-zinc-700 hover:border-zinc-500 transition-colors bg-zinc-900/80 backdrop-blur-sm"
             aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
             aria-expanded={menuOpen}
           >
@@ -82,10 +83,15 @@ export default function Header() {
               ))}
             </nav>
 
-            {/* Center logo — larger */}
-            <Link href="/" className="mx-8 flex-shrink-0">
+            {/* Center logo — animated on hover (plays once, keeps last frame) */}
+            <Link
+              href="/"
+              className="mx-8 flex-shrink-0"
+              onMouseEnter={() => setLogoAnimKey(k => k + 1)}
+            >
               <img
-                src="/Logo_Branca.png"
+                key={logoAnimKey}
+                src={logoAnimKey > 0 ? `/logo-anim.apng?v=${logoAnimKey}` : "/Logo_Branca.png"}
                 alt="Morthe"
                 className="h-11 w-auto object-contain transition-all duration-500 ease-out"
                 style={{
