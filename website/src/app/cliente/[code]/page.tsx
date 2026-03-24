@@ -282,7 +282,7 @@ export default function ClientDashboard() {
 
   const hasMoods = moods.length > 0;
 
-  if (loading) return <MortheLoader fullscreen />;
+  if (loading) return <MortheLoader fullscreen size="lg" />;
   if (error) return <div style={s.center}><p style={{ color: "#f87171" }}>{error}</p></div>;
   if (!info) return null;
 
@@ -311,7 +311,7 @@ export default function ClientDashboard() {
         <div style={s.banner}>
           <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/loading.apng" alt="" width={28} height={28} style={{ flexShrink: 0 }} />
+            <img src="/loading.apng" alt="" width={36} height={36} style={{ flexShrink: 0 }} />
             <div style={{ flex: 1 }}>
               <div>Processando fotos... {syncProgress.syncing ? `${syncProgress.percent}%` : ""}</div>
               {syncProgress.syncing && syncProgress.total > 0 && (
@@ -358,9 +358,15 @@ export default function ClientDashboard() {
           <h2 style={s.sTitle}>Referências</h2>
           <div style={s.grid}>
             {moodboard.map(f => (
-              <div key={f.id} style={s.card} onClick={() => setLightbox({ file: f, idx: -1, source: "gallery" })}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={thumbSrc(f)} alt={f.name} style={s.img} loading="lazy" />
+              <div key={f.id} style={s.card} onClick={() => !isProcessing(f) && setLightbox({ file: f, idx: -1, source: "gallery" })}>
+                {isProcessing(f) ? (
+                  <div style={{ ...s.img, display: "flex", alignItems: "center", justifyContent: "center", background: "#111" }}>
+                    <MortheLoader size="sm" />
+                  </div>
+                ) : (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={thumbSrc(f)} alt={f.name} style={s.img} loading="lazy" />
+                )}
               </div>
             ))}
           </div>
@@ -752,6 +758,8 @@ function MoodCard({ mood, isActive, onExpand, thumbSrc }: MoodCardProps) {
   }, [mood.files.length]);
 
   const selectedInMood = mood.files.filter(f => f.selected).length;
+  const cachedFiles = mood.files.filter(f => f.cached);
+  const allProcessing = cachedFiles.length === 0 && mood.files.length > 0;
 
   return (
     <div
@@ -771,21 +779,27 @@ function MoodCard({ mood, isActive, onExpand, thumbSrc }: MoodCardProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Slideshow */}
-      {mood.files.slice(0, 5).map((file, idx) => (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          key={file.id}
-          src={thumbSrc(file)}
-          alt=""
-          style={{
-            position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
-            transition: "opacity 0.8s ease-in-out",
-            opacity: idx === slideIdx % Math.min(mood.files.length, 5) ? 1 : 0,
-          }}
-          loading="lazy"
-        />
-      ))}
+      {/* Slideshow or loading placeholder */}
+      {allProcessing ? (
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <MortheLoader size="sm" />
+        </div>
+      ) : (
+        cachedFiles.slice(0, 5).map((file, idx) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            key={file.id}
+            src={thumbSrc(file)}
+            alt=""
+            style={{
+              position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover",
+              transition: "opacity 0.8s ease-in-out",
+              opacity: idx === slideIdx % Math.min(cachedFiles.length, 5) ? 1 : 0,
+            }}
+            loading="lazy"
+          />
+        ))
+      )}
 
       {/* Overlay + Title */}
       <div style={{
