@@ -131,9 +131,9 @@ export default function Header() {
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex h-20 items-center justify-center relative">
 
-            {/* ── Desktop: Centered nav with expanding links ── */}
+            {/* ── Desktop: Centered nav with expanding links — absolute for true center ── */}
             <div
-              className="hidden md:flex items-center justify-center"
+              className="hidden md:flex items-center justify-center absolute left-1/2 -translate-x-1/2"
               onMouseEnter={() => setNavExpanded(true)}
               onMouseLeave={() => { setNavExpanded(false); setHoveredLink(null); setDropdownOpen(false); }}
             >
