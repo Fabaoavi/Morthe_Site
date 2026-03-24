@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
+import MortheLoader from "@/components/MortheLoader";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -258,11 +259,7 @@ export default function ClientDashboard() {
 
   const hasMoods = moods.length > 0;
 
-  if (loading) return (
-    <div style={s.center}>
-      <div style={s.spinner} />
-    </div>
-  );
+  if (loading) return <MortheLoader fullscreen />;
   if (error) return <div style={s.center}><p style={{ color: "#f87171" }}>{error}</p></div>;
   if (!info) return null;
 

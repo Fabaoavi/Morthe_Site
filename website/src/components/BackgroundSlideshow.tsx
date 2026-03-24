@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef } from "react";
 import { FastAverageColor } from "fast-average-color";
+import MortheLoader from "@/components/MortheLoader";
 
 interface BackgroundSlideshowProps {
   onColorChange: (colorHex: string) => void;
@@ -104,8 +105,7 @@ export default function BackgroundSlideshow({
   if (isLoading) {
     return (
       <div className="fixed inset-0 -z-10 bg-zinc-950 flex items-center justify-center">
-        {/* Simple subtle loading indicator */}
-        <div className="w-8 h-8 rounded-full border-t-2 border-zinc-700 animate-spin"></div>
+        <MortheLoader size="sm" />
       </div>
     );
   }

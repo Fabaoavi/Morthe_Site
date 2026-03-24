@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import MortheLoader from "@/components/MortheLoader";
 
 const API = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
 
@@ -137,7 +138,7 @@ export default function AdminDashboard() {
     done: clients.filter(c => c.status === "selection_done").length,
   };
 
-  if (loading) return <div style={{ minHeight: "100vh", background: "#09090b", display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ width: 36, height: 36, border: "3px solid #222", borderTop: "3px solid #fff", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} /></div>;
+  if (loading) return <MortheLoader fullscreen />;
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "#09090b", color: "#fff" }}>
