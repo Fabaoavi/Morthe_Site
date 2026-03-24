@@ -250,11 +250,15 @@ export default function ClientDashboard() {
 
   function thumbSrc(file: DriveFile) {
     if (file.cachedThumbUrl) return `${API}${file.cachedThumbUrl}`;
-    return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+    // No cached watermarked version — return empty (placeholder shown by UI)
+    return "";
   }
   function lightboxSrcFn(file: DriveFile) {
     if (file.cachedMdUrl) return `${API}${file.cachedMdUrl}`;
-    return file.thumbnailUrl ?? `${API}${file.proxyUrl}`;
+    return "";
+  }
+  function isProcessing(file: DriveFile) {
+    return !file.cached;
   }
 
   const hasMoods = moods.length > 0;
@@ -370,7 +374,8 @@ export default function ClientDashboard() {
             <div style={s.grid}>
               {gallery.map((file, idx) => {
                 const isSelected = !!file.selected;
-                const showCheckbox = !finalizeInfo.finalized && (isSelected || !limitReached);
+                const processing = isProcessing(file);
+                const showCheckbox = !processing && !finalizeInfo.finalized && (isSelected || !limitReached);
                 return (
                   <div
                     key={file.id}
@@ -380,14 +385,23 @@ export default function ClientDashboard() {
                       outlineOffset: -3,
                     }}
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={thumbSrc(file)}
-                      alt={file.name}
-                      style={s.img}
-                      loading="lazy"
-                      onClick={() => setLightbox({ file, idx, source: "gallery" })}
-                    />
+                    {processing ? (
+                      /* Placeholder for images still being watermarked */
+                      <div style={{ ...s.img, display: "flex", alignItems: "center", justifyContent: "center", background: "#111" }}>
+                        <MortheLoader size="sm" />
+                      </div>
+                    ) : (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={thumbSrc(file)}
+                          alt={file.name}
+                          style={s.img}
+                          loading="lazy"
+                          onClick={() => setLightbox({ file, idx, source: "gallery" })}
+                        />
+                      </>
+                    )}
                     {showCheckbox && (
                       <button
                         style={{
@@ -469,8 +483,14 @@ export default function ClientDashboard() {
               onClick={() => setLightbox({ ...lightbox, file: lightboxFiles[lightbox.idx + 1], idx: lightbox.idx + 1 })}>›</button>
           )}
 
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightboxSrcFn(lightbox.file)} alt={lightbox.file.name} style={s.lightboxImg} />
+          {isProcessing(lightbox.file) ? (
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: 300 }}>
+              <MortheLoader size="md" message="Processando..." />
+            </div>
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img src={lightboxSrcFn(lightbox.file)} alt={lightbox.file.name} style={s.lightboxImg} />
+          )}
 
           <div style={s.lightboxFooter}>
             <span style={{ color: "#ccc", fontSize: 14, flex: 1 }}>{lightbox.file.name}</span>

@@ -17,7 +17,7 @@ from typing import Optional, List
 
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Header, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from google.oauth2.service_account import Credentials
@@ -770,17 +770,18 @@ def get_gallery(code: str = Query(...)):
             if drive_thumb:
                 drive_thumb = re.sub(r"=s\d+", "=s400", drive_thumb)
 
+            is_cached = cached_thumb is not None
             gallery.append({
                 "id": file_id,
                 "name": f["name"],
                 # cachedThumbUrl: URL estática do servidor (preferido)
                 "cachedThumbUrl": cached_thumb,
                 "cachedMdUrl":    cached_md,
-                # thumbnailUrl: fallback Google CDN
-                "thumbnailUrl": drive_thumb or None,
-                "proxyUrl": f"/api/client/file/{file_id}?code={code}",
+                # SECURITY: Never expose raw URLs when watermarked cache doesn't exist
+                "thumbnailUrl": None if not is_cached else (drive_thumb or None),
+                "proxyUrl": f"/api/client/file/{file_id}?code={code}" if is_cached else None,
                 "selected": file_id in selected_ids,
-                "cached": cached_thumb is not None,
+                "cached": is_cached,
             })
 
         # Atualiza status se ainda estava pending
@@ -952,15 +953,17 @@ def get_moods(code: str = Query(...)):
                 if drive_thumb:
                     drive_thumb = re.sub(r"=s\d+", "=s400", drive_thumb)
 
+                is_cached = cached_thumb is not None
                 mood_files.append({
                     "id": file_id,
                     "name": f["name"],
                     "cachedThumbUrl": cached_thumb,
                     "cachedMdUrl": cached_md,
-                    "thumbnailUrl": drive_thumb or None,
-                    "proxyUrl": f"/api/client/file/{file_id}?code={code}",
+                    # SECURITY: Never expose raw URLs when watermarked cache doesn't exist
+                    "thumbnailUrl": None if not is_cached else (drive_thumb or None),
+                    "proxyUrl": f"/api/client/file/{file_id}?code={code}" if is_cached else None,
                     "selected": file_id in selected_ids,
-                    "cached": cached_thumb is not None,
+                    "cached": is_cached,
                 })
 
             moods.append({
@@ -986,42 +989,31 @@ def get_moods(code: str = Query(...)):
 @app.get("/api/client/file/{file_id}")
 def stream_file(file_id: str, code: str = Query(...)):
     """
-    Proxy de streaming: busca o arquivo do Drive e entrega ao browser sem armazenar em disco.
-    O arquivo é transmitido em memória (BytesIO) e descartado após a resposta.
+    Proxy de streaming: serve a versão cacheada (com watermark) se existir.
+    Se não existir cache, retorna 403 para impedir acesso à imagem sem watermark.
     """
-    client = get_client_or_404(code)  # Garante que o código é válido antes de servir
+    client = get_client_or_404(code)
 
-    try:
-        service = get_drive_service()
-        file_meta = service.files().get(
-            fileId=file_id,
-            fields="id,name,mimeType",
-            supportsAllDrives=True,
-        ).execute()
+    # SECURITY: Always prefer watermarked cached version
+    cache_dir = os.path.join(THUMB_CACHE_DIR, code)
+    md_cache = os.path.join(cache_dir, f"{file_id}_md.webp")
 
-        request = service.files().get_media(fileId=file_id)
-        fh = io.BytesIO()
-        downloader = MediaIoBaseDownload(fh, request)
-        done = False
-        while not done:
-            _, done = downloader.next_chunk()
+    # Also check inside mood subdirectories
+    if not os.path.exists(md_cache):
+        for subdir in os.listdir(cache_dir) if os.path.isdir(cache_dir) else []:
+            subpath = os.path.join(cache_dir, subdir, f"{file_id}_md.webp")
+            if os.path.exists(subpath):
+                md_cache = subpath
+                break
 
-        fh.seek(0)
-        mime = file_meta.get("mimeType", "image/jpeg")
-        filename = file_meta.get("name", file_id)
+    if os.path.exists(md_cache):
+        return FileResponse(md_cache, media_type="image/webp")
 
-        return StreamingResponse(
-            fh,
-            media_type=mime,
-            headers={"Content-Disposition": f'inline; filename="{filename}"'},
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Falha ao transmitir arquivo do Drive: {str(e)}"
-        )
+    # No cached version — block access to raw image
+    raise HTTPException(
+        status_code=403,
+        detail="Imagem ainda em processamento. Aguarde a sincronização."
+    )
 
 
 @app.post("/api/client/select")
