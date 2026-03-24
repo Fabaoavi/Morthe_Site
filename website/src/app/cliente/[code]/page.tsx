@@ -73,6 +73,7 @@ export default function ClientDashboard() {
   const [toast, setToast] = useState("");
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMobile, setIsMobile] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<{ syncing: boolean; percent: number; processed: number; total: number }>({ syncing: false, percent: 100, processed: 0, total: 0 });
 
   // Detect mobile
   useEffect(() => {
@@ -81,6 +82,24 @@ export default function ClientDashboard() {
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, []);
+
+  // Poll sync progress when syncing
+  useEffect(() => {
+    if (info?.status !== "syncing") return;
+    const poll = async () => {
+      try {
+        const res = await fetch(`${API}/api/client/sync-progress?code=${encodeURIComponent(code)}`);
+        if (res.ok) {
+          const data = await res.json();
+          setSyncProgress(data);
+          if (!data.syncing) fetchData(); // Sync done, refresh gallery
+        }
+      } catch { /* ignore */ }
+    };
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [info?.status, code]);
 
   function showToast(msg: unknown) {
     const text = typeof msg === "string" ? msg : Array.isArray(msg) ? "Erro no servidor." : String(msg);
@@ -289,7 +308,20 @@ export default function ClientDashboard() {
 
       {/* ── Banners ── */}
       {info.status === "syncing" && (
-        <div style={s.banner}>Preparando sua galeria em alta qualidade... aguarde.</div>
+        <div style={s.banner}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, width: "100%" }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/loading.apng" alt="" width={28} height={28} style={{ flexShrink: 0 }} />
+            <div style={{ flex: 1 }}>
+              <div>Processando fotos... {syncProgress.syncing ? `${syncProgress.percent}%` : ""}</div>
+              {syncProgress.syncing && syncProgress.total > 0 && (
+                <div style={{ marginTop: 6, height: 4, borderRadius: 2, background: "rgba(255,255,255,0.1)", overflow: "hidden" }}>
+                  <div style={{ height: "100%", borderRadius: 2, background: "#fff", transition: "width 0.5s ease", width: `${syncProgress.percent}%` }} />
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
       {finalizeInfo.finalized && (
         <div style={{ ...s.banner, background: "#052e16", borderColor: "#166534", color: "#4ade80" }}>

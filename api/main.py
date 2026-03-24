@@ -63,6 +63,9 @@ SERVICE_ACCOUNT_PATH = os.environ.get(
 THUMB_CACHE_DIR = os.path.join(DATA_DIR, "thumb_cache")
 os.makedirs(THUMB_CACHE_DIR, exist_ok=True)
 
+# Sync progress tracking (in-memory, per client code)
+sync_progress: dict[str, dict] = {}
+
 # Slideshow da home — em produção fica em DATA_DIR para persistir
 SYNC_DIR      = os.path.join(DATA_DIR, "destaques_sync")
 METADATA_FILE = os.path.join(SYNC_DIR, "metadata.json")
@@ -190,14 +193,49 @@ def sync_client_thumbnails(client: dict):
             supportsAllDrives=True, includeItemsFromAllDrives=True, pageSize=50,
         ).execute().get("files", [])
 
-        total = len(gallery_files) + len(mood_files)
-        print(f"[SYNC] {len(gallery_files)} fotos de galeria + {len(mood_files)} moodboard")
+        # ── Count all files first (gallery + moodboard + mood folders) ──
+        # Also pre-fetch mood folder contents for total count
+        mood_folder_query = (
+            f"'{folder_id}' in parents "
+            f"and mimeType = 'application/vnd.google-apps.folder' "
+            f"and name contains 'Mood_' "
+            f"and trashed = false"
+        )
+        mood_folders = service.files().list(
+            q=mood_folder_query,
+            fields="files(id, name)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute().get("files", [])
+
+        mood_folder_files: dict[str, list] = {}
+        for mf in mood_folders:
+            mood_images_query = (
+                f"'{mf['id']}' in parents "
+                f"and mimeType contains 'image/' "
+                f"and trashed = false"
+            )
+            mood_images = service.files().list(
+                q=mood_images_query,
+                fields="files(id, name)",
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+                pageSize=200,
+            ).execute().get("files", [])
+            mood_folder_files[mf["id"]] = mood_images
+
+        total_mood_images = sum(len(v) for v in mood_folder_files.values())
+        total = len(gallery_files) + len(mood_files) + total_mood_images
+        print(f"[SYNC] {len(gallery_files)} galeria + {len(mood_files)} moodboard + {total_mood_images} moods = {total} total")
 
         synced = 0
+        sync_progress[code] = {"total": total, "processed": 0}
+
         for f in gallery_files:
             try:
                 _process_file(service, f["id"], f["name"], cache_dir)
                 synced += 1
+                sync_progress[code]["processed"] = synced
                 print(f"[SYNC] galeria {synced}/{total} — {f['name']}")
             except Exception as e:
                 print(f"[WARN] Erro em '{f['name']}': {e}")
@@ -206,58 +244,37 @@ def sync_client_thumbnails(client: dict):
             try:
                 _process_file(service, f["id"], f["name"], mood_dir)
                 synced += 1
+                sync_progress[code]["processed"] = synced
                 print(f"[SYNC] moodboard {synced}/{total} — {f['name']}")
             except Exception as e:
                 print(f"[WARN] Erro em '{f['name']}': {e}")
 
         # ── Sync moods (subpastas Mood_*) ─────────────────────────────
         try:
-            mood_folder_query = (
-                f"'{folder_id}' in parents "
-                f"and mimeType = 'application/vnd.google-apps.folder' "
-                f"and name contains 'Mood_' "
-                f"and trashed = false"
-            )
-            mood_folders = service.files().list(
-                q=mood_folder_query,
-                fields="files(id, name)",
-                supportsAllDrives=True,
-                includeItemsFromAllDrives=True,
-            ).execute().get("files", [])
-
             for mf in mood_folders:
                 safe_name = re.sub(r'[^\w\-]', '_', mf["name"].lower())
                 mood_cache = os.path.join(cache_dir, safe_name)
                 os.makedirs(mood_cache, exist_ok=True)
 
-                mood_images_query = (
-                    f"'{mf['id']}' in parents "
-                    f"and mimeType contains 'image/' "
-                    f"and trashed = false"
-                )
-                mood_images = service.files().list(
-                    q=mood_images_query,
-                    fields="files(id, name)",
-                    supportsAllDrives=True,
-                    includeItemsFromAllDrives=True,
-                    pageSize=200,
-                ).execute().get("files", [])
-
+                mood_images = mood_folder_files.get(mf["id"], [])
                 print(f"[SYNC] Mood '{mf['name']}': {len(mood_images)} imagens")
                 for mi in mood_images:
                     try:
                         _process_file(service, mi["id"], mi["name"], mood_cache)
                         synced += 1
+                        sync_progress[code]["processed"] = synced
                     except Exception as e:
                         print(f"[WARN] Mood '{mf['name']}' / '{mi['name']}': {e}")
         except Exception as e:
             print(f"[WARN] Erro ao sync moods: {e}")
 
         database.update_client(client_id, status="gallery_ready")
+        sync_progress.pop(code, None)
         print(f"[SYNC] Concluído '{client['name']}': {synced} arquivos.")
 
     except Exception as e:
         print(f"[ERROR] Falha no sync para '{code}': {e}")
+        sync_progress.pop(code, None)
         database.update_client(client_id, status="pending")
 
 app = FastAPI(title="Morthe API", version="2.0.0")
@@ -801,6 +818,19 @@ def get_gallery(code: str = Query(...)):
         raise HTTPException(
             status_code=500, detail=f"Falha ao buscar galeria do Drive: {str(e)}"
         )
+
+
+@app.get("/api/client/sync-progress")
+def get_sync_progress(code: str = Query(...)):
+    """Retorna o progresso da sincronização de thumbnails."""
+    client = get_client_or_404(code)
+    progress = sync_progress.get(code)
+    if progress:
+        total = progress["total"]
+        processed = progress["processed"]
+        percent = round((processed / total * 100) if total > 0 else 0)
+        return {"syncing": True, "total": total, "processed": processed, "percent": percent, "status": client["status"]}
+    return {"syncing": False, "total": 0, "processed": 0, "percent": 100, "status": client["status"]}
 
 
 @app.get("/api/client/moodboard")
