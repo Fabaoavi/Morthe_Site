@@ -14,260 +14,230 @@ const rightLinks = [
   { href: '#quem-somos', label: 'Quem Somos' },
 ];
 
+const mobileNavItems = [
+  { href: '/', label: 'Início', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><polyline points="9 22 9 12 15 12 15 22" />
+    </svg>
+  )},
+  { href: '#destaques', label: 'Destaques', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+    </svg>
+  )},
+  { href: '#servicos', label: 'Serviços', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <rect width="18" height="18" x="3" y="3" rx="2" ry="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+    </svg>
+  )},
+  { href: '#quem-somos', label: 'Sobre', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87" /><path d="M16 3.13a4 4 0 0 1 0 7.75" />
+    </svg>
+  )},
+  { href: '/cliente', label: 'Cliente', icon: (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" /><circle cx="12" cy="7" r="4" />
+    </svg>
+  )},
+];
+
 export default function Header() {
   const { color } = useDynamicColor();
   const [hoveredLink, setHoveredLink] = useState<string | null>(null);
   const [navExpanded, setNavExpanded] = useState(false);
   const [ctaHovered, setCtaHovered] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [logoAnimKey, setLogoAnimKey] = useState(0);
   const logoHovering = useRef(false);
-  const drawerRef = useRef<HTMLDivElement>(null);
-  const touchStartX = useRef(0);
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 768) setMenuOpen(false);
-    };
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  useEffect(() => {
-    document.body.style.overflow = menuOpen ? 'hidden' : '';
-    return () => { document.body.style.overflow = ''; };
-  }, [menuOpen]);
 
   const isHovered = (path: string) => hoveredLink === path;
 
   return (
-    <header className="sticky top-0 z-[70] w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-md dynamic-transition">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex h-20 items-center">
+    <>
+      <header className="sticky top-0 z-[70] w-full border-b border-zinc-800 bg-zinc-950/70 backdrop-blur-md dynamic-transition">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex h-20 items-center">
 
-          {/* Mobile: Hamburger (left) */}
-          <button
-            onClick={() => setMenuOpen(!menuOpen)}
-            className="md:hidden flex flex-col justify-center items-center w-10 h-10 rounded-lg transition-colors"
-            style={{ background: "#27272a", border: "1px solid #52525b" }}
-            aria-label={menuOpen ? 'Fechar menu' : 'Abrir menu'}
-            aria-expanded={menuOpen}
-          >
-            <span className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 ${menuOpen ? 'rotate-45 translate-y-[3px]' : ''}`} />
-            <span className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 my-[3px] ${menuOpen ? 'opacity-0' : ''}`} />
-            <span className={`block w-4 h-0.5 bg-zinc-300 transition-all duration-300 ${menuOpen ? '-rotate-45 -translate-y-[3px]' : ''}`} />
-          </button>
-
-          {/* Desktop: Centered nav — absolute positioning for true center */}
-          <div
-            className="hidden md:flex items-center justify-center absolute left-1/2 -translate-x-1/2"
-            onMouseEnter={() => setNavExpanded(true)}
-            onMouseLeave={() => { setNavExpanded(false); setHoveredLink(null); }}
-          >
-            {/* Left links */}
-            <nav className="flex items-center gap-7 overflow-hidden">
-              {leftLinks.map((link, i) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="text-sm font-medium whitespace-nowrap transition-all duration-500 ease-out"
-                  style={{
-                    color: isHovered(link.href) ? color : '#d4d4d8',
-                    opacity: navExpanded ? 1 : 0,
-                    transform: navExpanded ? 'translateX(0)' : 'translateX(40px)',
-                    transitionDelay: navExpanded ? `${(leftLinks.length - 1 - i) * 60}ms` : '0ms',
-                  }}
-                  onMouseEnter={() => setHoveredLink(link.href)}
-                  onMouseLeave={() => setHoveredLink(null)}
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </nav>
-
-            {/* Center logo — plays once on hover, keeps last frame */}
-            <Link
-              href="/"
-              className="mx-8 flex-shrink-0"
-              onMouseEnter={() => {
-                if (!logoHovering.current) {
-                  logoHovering.current = true;
-                  setLogoAnimKey(k => k + 1);
-                }
-              }}
-              onMouseLeave={() => { logoHovering.current = false; }}
+            {/* Desktop: Centered nav — absolute positioning for true center */}
+            <div
+              className="hidden md:flex items-center justify-center absolute left-1/2 -translate-x-1/2"
+              onMouseEnter={() => setNavExpanded(true)}
+              onMouseLeave={() => { setNavExpanded(false); setHoveredLink(null); }}
             >
-              <img
-                key={logoAnimKey}
-                src={logoAnimKey > 0 ? `/logo-anim.apng?v=${logoAnimKey}` : "/logo-frame1.png"}
-                alt="Morthe"
-                className="h-[70px] w-auto object-contain"
-                style={{
-                  filter: navExpanded ? `drop-shadow(0 0 10px ${color})` : 'none',
+              {/* Left links */}
+              <nav className="flex items-center gap-7 overflow-hidden">
+                {leftLinks.map((link, i) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="text-sm font-medium whitespace-nowrap transition-all duration-500 ease-out"
+                    style={{
+                      color: isHovered(link.href) ? color : '#d4d4d8',
+                      opacity: navExpanded ? 1 : 0,
+                      transform: navExpanded ? 'translateX(0)' : 'translateX(40px)',
+                      transitionDelay: navExpanded ? `${(leftLinks.length - 1 - i) * 60}ms` : '0ms',
+                    }}
+                    onMouseEnter={() => setHoveredLink(link.href)}
+                    onMouseLeave={() => setHoveredLink(null)}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </nav>
+
+              {/* Center logo — plays once on hover, keeps last frame */}
+              <Link
+                href="/"
+                className="mx-8 flex-shrink-0"
+                onMouseEnter={() => {
+                  if (!logoHovering.current) {
+                    logoHovering.current = true;
+                    setLogoAnimKey(k => k + 1);
+                  }
                 }}
+                onMouseLeave={() => { logoHovering.current = false; }}
+              >
+                <img
+                  key={logoAnimKey}
+                  src={logoAnimKey > 0 ? `/logo-anim.apng?v=${logoAnimKey}` : "/logo-frame1.png"}
+                  alt="Morthe"
+                  className="h-[70px] w-auto object-contain"
+                  style={{
+                    filter: navExpanded ? `drop-shadow(0 0 10px ${color})` : 'none',
+                  }}
+                />
+              </Link>
+
+              {/* Right links */}
+              <nav className="flex items-center gap-7 overflow-hidden">
+                {rightLinks.map((link, i) => (
+                  <Link
+                    key={link.href}
+                    href={link.href}
+                    className="text-sm font-medium whitespace-nowrap transition-all duration-500 ease-out"
+                    style={{
+                      color: isHovered(link.href) ? color : '#d4d4d8',
+                      opacity: navExpanded ? 1 : 0,
+                      transform: navExpanded ? 'translateX(0)' : 'translateX(-40px)',
+                      transitionDelay: navExpanded ? `${i * 60}ms` : '0ms',
+                    }}
+                    onMouseEnter={() => setHoveredLink(link.href)}
+                    onMouseLeave={() => setHoveredLink(null)}
+                  >
+                    {link.label}
+                  </Link>
+                ))}
+              </nav>
+            </div>
+
+            {/* Mobile: Logo centered (full width since no hamburger) */}
+            <Link href="/" className="md:hidden flex-1 flex justify-center">
+              <img
+                src="/logo-frame1.png"
+                alt="Morthe"
+                className="h-12 w-auto object-contain"
               />
             </Link>
 
-            {/* Right links */}
-            <nav className="flex items-center gap-7 overflow-hidden">
-              {rightLinks.map((link, i) => (
-                <Link
-                  key={link.href}
-                  href={link.href}
-                  className="text-sm font-medium whitespace-nowrap transition-all duration-500 ease-out"
-                  style={{
-                    color: isHovered(link.href) ? color : '#d4d4d8',
-                    opacity: navExpanded ? 1 : 0,
-                    transform: navExpanded ? 'translateX(0)' : 'translateX(-40px)',
-                    transitionDelay: navExpanded ? `${i * 60}ms` : '0ms',
-                  }}
-                  onMouseEnter={() => setHoveredLink(link.href)}
-                  onMouseLeave={() => setHoveredLink(null)}
-                >
-                  {link.label}
-                </Link>
-              ))}
-            </nav>
-          </div>
-
-          {/* Mobile: Logo centered */}
-          <Link href="/" className="md:hidden flex-1 flex justify-center">
-            <img
-              src="/logo-frame1.png"
-              alt="Morthe"
-              className="h-12 w-auto object-contain"
-            />
-          </Link>
-
-          {/* CTA — user icon, pushed to far right */}
-          <div
-            className="ml-auto relative"
-            onMouseEnter={() => setCtaHovered(true)}
-            onMouseLeave={() => setCtaHovered(false)}
-          >
-            <Link
-              href="/cliente"
-              className="inline-flex items-center gap-2 h-9 justify-center rounded-full transition-all duration-400 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 border border-zinc-700 hover:border-zinc-500"
-              style={{
-                padding: ctaHovered ? '0 16px 0 10px' : '0 10px',
-                backgroundColor: ctaHovered ? color : 'transparent',
-                borderColor: ctaHovered ? color : undefined,
-                boxShadow: ctaHovered ? `0 4px 20px -5px ${color}` : 'none',
-              }}
+            {/* Desktop CTA — user icon, pushed to far right */}
+            <div
+              className="ml-auto relative hidden md:block"
+              onMouseEnter={() => setCtaHovered(true)}
+              onMouseLeave={() => setCtaHovered(false)}
             >
-              {/* User icon */}
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={ctaHovered ? '#09090b' : '#d4d4d8'}
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="transition-colors duration-300 flex-shrink-0"
-              >
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-              {/* Label — expands on hover */}
-              <span
-                className="text-sm font-medium whitespace-nowrap overflow-hidden transition-all duration-400 ease-out"
+              <Link
+                href="/cliente"
+                className="inline-flex items-center gap-2 h-9 justify-center rounded-full transition-all duration-400 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-zinc-300 border border-zinc-700 hover:border-zinc-500"
                 style={{
-                  maxWidth: ctaHovered ? '120px' : '0px',
-                  opacity: ctaHovered ? 1 : 0,
-                  color: ctaHovered ? '#09090b' : '#d4d4d8',
+                  padding: ctaHovered ? '0 16px 0 10px' : '0 10px',
+                  backgroundColor: ctaHovered ? color : 'transparent',
+                  borderColor: ctaHovered ? color : undefined,
+                  boxShadow: ctaHovered ? `0 4px 20px -5px ${color}` : 'none',
                 }}
               >
-                Área do Cliente
-              </span>
-            </Link>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={ctaHovered ? '#09090b' : '#d4d4d8'}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="transition-colors duration-300 flex-shrink-0"
+                >
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                <span
+                  className="text-sm font-medium whitespace-nowrap overflow-hidden transition-all duration-400 ease-out"
+                  style={{
+                    maxWidth: ctaHovered ? '120px' : '0px',
+                    opacity: ctaHovered ? 1 : 0,
+                    color: ctaHovered ? '#09090b' : '#d4d4d8',
+                  }}
+                >
+                  Área do Cliente
+                </span>
+              </Link>
+            </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Mobile Drawer — slides from left */}
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 z-[80] md:hidden transition-opacity duration-300"
-        style={{
-          background: 'rgba(0,0,0,0.5)',
-          opacity: menuOpen ? 1 : 0,
-          pointerEvents: menuOpen ? 'auto' : 'none',
-        }}
-        onClick={() => setMenuOpen(false)}
-      />
+      {/* Mobile Bottom Nav Bar */}
+      <MobileBottomNav />
+    </>
+  );
+}
 
-      {/* Drawer panel */}
-      <div
-        ref={drawerRef}
-        className="fixed top-0 left-0 h-full w-[280px] z-[90] md:hidden flex flex-col transition-transform duration-300 ease-out"
-        style={{
-          transform: menuOpen ? 'translateX(0)' : 'translateX(-100%)',
-          background: 'rgba(9, 9, 11, 0.97)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          boxShadow: menuOpen ? '4px 0 25px rgba(0,0,0,0.5)' : 'none',
-        }}
-        onTouchStart={(e) => { touchStartX.current = e.touches[0].clientX; }}
-        onTouchEnd={(e) => {
-          const delta = e.changedTouches[0].clientX - touchStartX.current;
-          if (delta < -60) setMenuOpen(false);
-        }}
-      >
-        {/* Drawer header — logo */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-zinc-800/50">
-          <Link href="/" onClick={() => setMenuOpen(false)}>
-            <img src="/Logo_Branca.png" alt="Morthe" className="h-8 w-auto object-contain" />
-          </Link>
-          <button
-            onClick={() => setMenuOpen(false)}
-            className="w-8 h-8 flex items-center justify-center rounded-md text-zinc-500 hover:text-zinc-300 transition-colors"
-            aria-label="Fechar menu"
-          >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M18 6 6 18" /><path d="m6 6 12 12" />
-            </svg>
-          </button>
-        </div>
+function MobileBottomNav() {
+  const [visible, setVisible] = useState(true);
+  const lastScrollY = useRef(0);
 
-        {/* Navigation links */}
-        <nav className="flex flex-col gap-1 px-4 pt-6 flex-1">
-          {[...leftLinks, ...rightLinks].map((link, i) => (
-            <Link
-              key={link.href}
-              href={link.href}
-              onClick={() => setMenuOpen(false)}
-              className="flex items-center gap-3 px-3 py-3 rounded-lg text-[15px] font-medium text-zinc-400 hover:text-zinc-100 hover:bg-zinc-800/50 transition-all duration-200"
-              style={{
-                animation: menuOpen ? `drawerSlideIn 0.3s ease-out ${i * 50}ms both` : 'none',
-              }}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+  // Hide on scroll down, show on scroll up
+  useEffect(() => {
+    const handleScroll = () => {
+      const current = window.scrollY;
+      setVisible(current < lastScrollY.current || current < 50);
+      lastScrollY.current = current;
+    };
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
 
-        {/* CTA at bottom */}
-        <div className="px-4 pb-8 pt-4 border-t border-zinc-800/50">
+  return (
+    <nav
+      className="md:hidden fixed bottom-0 left-0 right-0 z-[70]"
+      style={{
+        background: '#0a0a0a',
+        borderTop: '1px solid #1a1a1a',
+        transform: visible ? 'translateY(0)' : 'translateY(100%)',
+        transition: 'transform 0.3s ease-out',
+        paddingBottom: 'env(safe-area-inset-bottom, 0px)',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-around', alignItems: 'center', height: 56 }}>
+        {mobileNavItems.map(item => (
           <Link
-            href="/cliente"
-            onClick={() => setMenuOpen(false)}
-            className="flex items-center justify-center gap-2 w-full rounded-full border border-zinc-700 px-5 py-3 text-sm font-medium text-zinc-300 hover:bg-zinc-800/50 transition-colors"
+            key={item.href}
+            href={item.href}
             style={{
-              animation: menuOpen ? `drawerSlideIn 0.3s ease-out 250ms both` : 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 2,
+              padding: '6px 12px',
+              color: '#71717a',
+              textDecoration: 'none',
+              WebkitTapHighlightColor: 'transparent',
             }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-              <circle cx="12" cy="7" r="4" />
-            </svg>
-            Área do Cliente
+            {item.icon}
+            <span style={{ fontSize: 10, fontWeight: 500, lineHeight: 1 }}>{item.label}</span>
           </Link>
-        </div>
-
-        <style>{`@keyframes drawerSlideIn { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: translateX(0); } }`}</style>
+        ))}
       </div>
-    </header>
+    </nav>
   );
 }
