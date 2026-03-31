@@ -4,14 +4,10 @@ export default function SobrePage() {
       {/* Hero */}
       <section className="py-24 px-4 text-center max-w-3xl mx-auto">
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-8">Sobre a Morthe</h1>
-        <p className="text-zinc-300 text-lg sm:text-xl leading-relaxed mb-4">
+        <p className="text-zinc-300 text-base sm:text-lg font-medium leading-relaxed max-w-2xl mx-auto">
           Toda marca carrega uma essência que poucos sabem ver. Fomos feitos pra enxergar exatamente isso.
-        </p>
-        <p className="text-zinc-500 text-base sm:text-lg leading-relaxed mb-4">
           Não seguimos briefings... lemos entrelinhas. Mergulhamos no que ainda não tem nome e
           transformamos o intangível em identidade, presença e arte que comunica sem se explicar.
-        </p>
-        <p className="text-zinc-500 text-base sm:text-lg leading-relaxed">
           Cada cliente é tratado como o que é: único. Inconfundível. E é exatamente assim que o mundo vai enxergá-lo.
         </p>
       </section>
@@ -41,8 +37,7 @@ export default function SobrePage() {
           <div className="rounded-2xl border border-zinc-800 bg-gradient-to-b from-emerald-900/20 to-zinc-950 p-7">
             <h3 className="text-lg font-semibold mb-4 text-white">Valores</h3>
             <p className="text-sm text-zinc-400 leading-relaxed">
-              Autenticidade que provoca, disrupção que posiciona. Porque identidade de verdade não se copia
-              — se constrói.
+              Autenticidade que provoca, disrupção que posiciona. Porque identidade de verdade não se copia, se constrói.
             </p>
           </div>
         </div>
