@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import HeroSection from "@/components/HeroSection";
-import PortfolioGrid from "@/components/PortfolioGrid";
 import BackgroundSlideshow from "@/components/BackgroundSlideshow";
 import Footer from "@/components/Footer";
 import { useDynamicColor } from "@/components/DynamicColorProvider";
@@ -26,7 +25,7 @@ const nichos = [
     gradient: 'from-amber-900/40 via-zinc-950 to-zinc-950',
     icon: (
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 6 9 6 9" /><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5C17 4 18 9 18 9" /><path d="M4 22h16" /><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22" /><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22" /><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z" />
+        <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" /><path d="M7 7h.01" />
       </svg>
     ),
   },
@@ -108,32 +107,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* ── Destaques / Portfolio preview ── */}
-      <section
-        id="destaques"
-        className="w-full bg-zinc-950 relative z-10 py-20 sm:py-28 border-t border-zinc-900/50 scroll-mt-20"
-      >
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="text-center mb-14">
-            <h2 className="text-3xl sm:text-4xl font-bold text-white mb-3">Destaques</h2>
-            <p className="text-zinc-500 text-base sm:text-lg max-w-xl mx-auto">
-              Uma seleção dos nossos melhores trabalhos.
-            </p>
-          </div>
-
-          <PortfolioGrid />
-
-          <div className="text-center mt-10">
-            <Link
-              href="/portfolio"
-              className="inline-flex h-11 items-center justify-center rounded-md border border-zinc-700 px-6 text-sm font-medium text-zinc-300 hover:bg-zinc-800/50 hover:border-zinc-500 transition-all duration-300"
-            >
-              Ver portfólio completo
-            </Link>
-          </div>
-        </div>
-      </section>
-
       {/* ── Sobre resumido ── */}
       <section
         id="sobre"
@@ -141,14 +114,10 @@ export default function Home() {
       >
         <div className="max-w-4xl mx-auto px-4 sm:px-6 text-center">
           <h2 className="text-3xl sm:text-4xl font-bold text-white mb-6">Sobre a Morthe</h2>
-          <p className="text-zinc-300 text-base sm:text-lg leading-relaxed max-w-2xl mx-auto mb-4">
+          <p className="text-zinc-300 text-base sm:text-lg font-medium leading-relaxed max-w-2xl mx-auto mb-10">
             Toda marca carrega uma essência que poucos sabem ver. Fomos feitos pra enxergar exatamente isso.
-          </p>
-          <p className="text-zinc-500 text-sm sm:text-base leading-relaxed max-w-2xl mx-auto mb-4">
             Não seguimos briefings... lemos entrelinhas. Mergulhamos no que ainda não tem nome e
             transformamos o intangível em identidade, presença e arte que comunica sem se explicar.
-          </p>
-          <p className="text-zinc-500 text-sm sm:text-base leading-relaxed max-w-2xl mx-auto mb-10">
             Cada cliente é tratado como o que é: único. Inconfundível. E é exatamente assim que o mundo vai enxergá-lo.
           </p>
 
@@ -160,7 +129,7 @@ export default function Home() {
               Conheça a Morthe
             </Link>
             <a
-              href="https://instagram.com/morthe.avi"
+              href="https://instagram.com/morthe.pro"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 text-zinc-500 hover:text-zinc-300 transition-colors text-sm"
@@ -170,7 +139,7 @@ export default function Home() {
                 <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
                 <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
               </svg>
-              @morthe.avi
+              @morthe.pro
             </a>
           </div>
         </div>
@@ -182,7 +151,7 @@ export default function Home() {
         className="w-full bg-zinc-950 relative z-10 py-20 sm:py-28 border-t border-zinc-900/50 scroll-mt-20"
       >
         <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center">
-          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">A MORTHE TE ESPERA.</h2>
+          <h2 className="text-3xl sm:text-4xl font-bold text-white mb-4">A MORTHE TE ESPERA!</h2>
           <p className="text-zinc-400 text-base sm:text-lg mb-10 max-w-xl mx-auto">
             O próximo passo é seu. Sua identidade, sua essência e sua presença merecem ser imortalizadas.
           </p>

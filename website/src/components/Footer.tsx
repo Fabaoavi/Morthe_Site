@@ -14,7 +14,7 @@ export default function Footer() {
 
           {/* Instagram */}
           <a
-            href="https://instagram.com/morthe.avi"
+            href="https://instagram.com/morthe.pro"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 text-zinc-500 hover:text-zinc-300 transition-colors duration-300"
@@ -33,7 +33,7 @@ export default function Footer() {
               <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
               <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
             </svg>
-            <span className="text-xs">@morthe.avi</span>
+            <span className="text-xs">@morthe.pro</span>
           </a>
         </div>
       </div>
