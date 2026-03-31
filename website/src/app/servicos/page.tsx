@@ -28,7 +28,7 @@ export default function ServicosPage() {
       <section className="py-24 px-4 text-center">
         <h1 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">Serviços</h1>
         <p className="text-zinc-400 text-lg max-w-2xl mx-auto">
-          Soluções criativas sob medida para cada segmento.
+          Arte, estratégia e identidade. Do conceito à imortalidade.
         </p>
       </section>
 

@@ -33,17 +33,15 @@ export default function HeroSection() {
           />
 
           <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight text-white font-sans relative z-10 drop-shadow-md text-center leading-tight">
-            Direção criativa.<br />
-            Visão autoral.<br />
+            Identidade que impacta.<br />
             <span style={{ color: 'var(--dynamic-color)', transition: 'color 1s ease' }}>
-              Resultado real.
+              Presença que domina.
             </span>
           </h1>
         </div>
 
         <p className="text-base sm:text-lg md:text-xl text-zinc-400 mb-10 max-w-2xl font-light drop-shadow leading-relaxed">
-          Estúdio criativo especializado em arte, entretenimento, marcas e experiências.
-          Do conceito à execução.
+          O que te faz único já existe. A Morthe captura, posiciona e imortaliza.
         </p>
 
         <div className="flex flex-col sm:flex-row gap-4 items-center justify-center">
