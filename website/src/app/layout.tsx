@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Morthe — Criatividade & Tecnologia",
+  title: "Morthe",
   description: "Agência focada em experiências digitais com design imersivo, dark mode tecnológico e alta performance.",
 };
 
