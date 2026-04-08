@@ -84,6 +84,23 @@ def init_db():
         # Migration: adiciona colunas novas em bancos existentes (sem perder dados)
         _migrate(conn)
 
+        # Auto-recovery: limpa delivery_status zumbi (generating sem thread ativo).
+        # Após restart de container, qualquer "generating" é inválido por definição
+        # — a thread que estava gerando o ZIP morreu junto com o processo anterior.
+        try:
+            cur = conn.execute(
+                "UPDATE clients SET delivery_status='idle' "
+                "WHERE delivery_status='generating'"
+            )
+            if cur.rowcount > 0:
+                print(
+                    f"[INIT] Resetou {cur.rowcount} delivery_status zumbi(s) "
+                    f"'generating' -> 'idle'"
+                )
+            conn.commit()
+        except Exception as e:
+            print(f"[INIT] Falha ao limpar status zumbi: {e}")
+
     finally:
         conn.close()
 
