@@ -603,6 +603,181 @@ function formatBytes(bytes: number | null | undefined): string {
   return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
+type DiagnoseSubfolder = {
+  id: string;
+  name: string;
+  name_repr?: string;
+  name_bytes_hex?: string;
+  matches_entrega_filter?: boolean;
+};
+
+function DiagnoseView({ data }: { data: Record<string, unknown> }) {
+  const get = <T,>(k: string): T | undefined => data[k] as T | undefined;
+  const backendVersion = get<string>("backend_version");
+  const clientName = get<string>("client_name");
+  const driveId = get<string>("drive_gallery_id");
+  const saEmail = get<string>("service_account_email");
+  const parentAccess = get<boolean | null>("parent_access");
+  const parentName = get<string>("parent_name");
+  const parentDriveId = get<string>("parent_drive_id");
+  const subfolders = (get<DiagnoseSubfolder[]>("subfolders") ?? []);
+  const entregaMatch = get<string | null>("entrega_match");
+  const partialMatches = get<DiagnoseSubfolder[]>("partial_matches") ?? [];
+  const error = get<string | null>("error");
+
+  const row: React.CSSProperties = { display: "flex", gap: 10, fontSize: 12, padding: "4px 0", borderBottom: "1px dashed #1a1a1a" };
+  const lbl: React.CSSProperties = { color: "#666", minWidth: 150, flexShrink: 0 };
+  const val: React.CSSProperties = { color: "#ccc", wordBreak: "break-all", fontFamily: "ui-monospace, monospace" };
+
+  function copyToClipboard(text: string) {
+    if (typeof navigator !== "undefined" && navigator.clipboard) {
+      navigator.clipboard.writeText(text).catch(() => {});
+    }
+  }
+
+  return (
+    <div style={{ fontSize: 12 }}>
+      {backendVersion && (
+        <div style={{ marginBottom: 10, padding: "6px 10px", background: "#0f1a2e", border: "1px solid #1a2a4a", borderRadius: 6, color: "#60a5fa", fontFamily: "ui-monospace, monospace" }}>
+          backend_version: {backendVersion}
+        </div>
+      )}
+
+      <div style={row}>
+        <span style={lbl}>Cliente</span>
+        <span style={val}>{clientName ?? "—"}</span>
+      </div>
+      <div style={row}>
+        <span style={lbl}>drive_gallery_id</span>
+        <span style={val}>
+          {driveId ?? "—"}
+          {driveId && (
+            <button
+              onClick={() => copyToClipboard(driveId)}
+              style={{ ...btnSm, fontSize: 10, marginLeft: 8, padding: "2px 6px" }}
+            >
+              copiar
+            </button>
+          )}
+        </span>
+      </div>
+      <div style={row}>
+        <span style={lbl}>Service Account</span>
+        <span style={val}>
+          {saEmail ?? "—"}
+          {saEmail && (
+            <button
+              onClick={() => copyToClipboard(saEmail)}
+              style={{ ...btnSm, fontSize: 10, marginLeft: 8, padding: "2px 6px" }}
+            >
+              copiar
+            </button>
+          )}
+        </span>
+      </div>
+      <div style={row}>
+        <span style={lbl}>Acesso à pasta pai</span>
+        <span style={{ ...val, color: parentAccess ? "#4ade80" : parentAccess === false ? "#f87171" : "#888" }}>
+          {parentAccess === true ? "✓ OK" : parentAccess === false ? "✗ SEM ACESSO" : "—"}
+        </span>
+      </div>
+      {parentName && (
+        <div style={row}>
+          <span style={lbl}>Nome da pasta pai</span>
+          <span style={val}>{parentName}</span>
+        </div>
+      )}
+      {parentDriveId && (
+        <div style={row}>
+          <span style={lbl}>driveId (Shared Drive)</span>
+          <span style={val}>{parentDriveId}</span>
+        </div>
+      )}
+      <div style={row}>
+        <span style={lbl}>Match &ldquo;Entrega&rdquo;</span>
+        <span style={{ ...val, color: entregaMatch ? "#4ade80" : "#f87171" }}>
+          {entregaMatch ? `✓ encontrada (id: ${entregaMatch})` : "✗ nenhuma subpasta bate com 'entrega'"}
+        </span>
+      </div>
+
+      {error && (
+        <div style={{ marginTop: 12, padding: "10px 12px", background: "#1a0a0a", border: "1px solid #4a1a1a", borderRadius: 6, color: "#f87171" }}>
+          <strong>Erro:</strong> {error}
+        </div>
+      )}
+
+      <div style={{ marginTop: 14 }}>
+        <div style={{ color: "#888", fontSize: 11, marginBottom: 6, fontWeight: 600 }}>
+          Subpastas vistas pelo backend ({subfolders.length}):
+        </div>
+        {subfolders.length === 0 ? (
+          <div style={{ color: "#666", fontSize: 12, padding: "8px 10px", background: "#0a0a0a", borderRadius: 6 }}>
+            Nenhuma subpasta encontrada dentro da pasta do cliente.
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {subfolders.map((sf) => (
+              <div
+                key={sf.id}
+                style={{
+                  padding: "8px 10px",
+                  background: sf.matches_entrega_filter ? "#0a1a0f" : "#0a0a0a",
+                  border: `1px solid ${sf.matches_entrega_filter ? "#15341c" : "#1a1a1a"}`,
+                  borderRadius: 6,
+                }}
+              >
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                  <span style={{ color: sf.matches_entrega_filter ? "#4ade80" : "#ccc", fontWeight: 600 }}>
+                    {sf.matches_entrega_filter ? "✓" : "•"} {sf.name || "(sem nome)"}
+                  </span>
+                  {sf.matches_entrega_filter && (
+                    <span style={{ fontSize: 10, color: "#4ade80", background: "#0a2a14", padding: "1px 6px", borderRadius: 4 }}>
+                      MATCH
+                    </span>
+                  )}
+                </div>
+                {sf.name_repr && (
+                  <div style={{ color: "#666", fontSize: 10, fontFamily: "ui-monospace, monospace" }}>
+                    repr: {sf.name_repr}
+                  </div>
+                )}
+                {sf.name_bytes_hex && (
+                  <div style={{ color: "#666", fontSize: 10, fontFamily: "ui-monospace, monospace", wordBreak: "break-all" }}>
+                    utf-8 hex: {sf.name_bytes_hex}
+                  </div>
+                )}
+                <div style={{ color: "#444", fontSize: 10, fontFamily: "ui-monospace, monospace" }}>
+                  id: {sf.id}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {partialMatches.length > 0 && (
+        <div style={{ marginTop: 12, padding: "10px 12px", background: "#1a1400", border: "1px solid #3a2e00", borderRadius: 6 }}>
+          <div style={{ color: "#fbbf24", fontSize: 11, fontWeight: 600, marginBottom: 6 }}>
+            Correspondências parciais (contém &ldquo;entrega&rdquo; mas não bate com filtro exato):
+          </div>
+          {partialMatches.map((sf) => (
+            <div key={sf.id} style={{ color: "#e5c068", fontSize: 11, fontFamily: "ui-monospace, monospace" }}>
+              • {sf.name_repr || sf.name} — hex: {sf.name_bytes_hex}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <details style={{ marginTop: 14 }}>
+        <summary style={{ color: "#555", fontSize: 11, cursor: "pointer" }}>JSON bruto</summary>
+        <pre style={{ marginTop: 6, padding: 10, background: "#000", border: "1px solid #1a1a1a", borderRadius: 6, fontSize: 10, color: "#666", overflow: "auto", maxHeight: 300 }}>
+          {JSON.stringify(data, null, 2)}
+        </pre>
+      </details>
+    </div>
+  );
+}
+
 function DeliverySection({ clientId, clientName, showToast }: {
   clientId: number;
   clientName: string;
@@ -617,6 +792,8 @@ function DeliverySection({ clientId, clientName, showToast }: {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearConfirmText, setClearConfirmText] = useState("");
+  const [diagnoseData, setDiagnoseData] = useState<Record<string, unknown> | null>(null);
+  const [diagnoseLoading, setDiagnoseLoading] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -712,6 +889,28 @@ function DeliverySection({ clientId, clientName, showToast }: {
       setConfirmClear(false);
       setClearConfirmText("");
       fetchStatus();
+    }
+  }
+
+  async function handleDiagnose() {
+    setDiagnoseLoading(true);
+    setDiagnoseData(null);
+    try {
+      const r = await fetch(
+        `${API}/api/admin/clients/${clientId}/delivery/diagnose`,
+        { headers: getAuthHeaders() }
+      );
+      if (r.ok) {
+        const d = await r.json();
+        setDiagnoseData(d);
+      } else {
+        const err = await r.json().catch(() => ({}));
+        setDiagnoseData({ error: err.detail || `HTTP ${r.status}` });
+      }
+    } catch (e) {
+      setDiagnoseData({ error: String(e) });
+    } finally {
+      setDiagnoseLoading(false);
     }
   }
 
@@ -853,6 +1052,14 @@ function DeliverySection({ clientId, clientName, showToast }: {
           Preview
         </button>
 
+        <button
+          onClick={handleDiagnose}
+          disabled={diagnoseLoading}
+          style={{ ...btnAction, borderColor: "#888", color: "#aaa" }}
+        >
+          {diagnoseLoading ? "Diagnosticando…" : "Diagnosticar"}
+        </button>
+
         {delivery.status === "ready" && (
           delivery.released
             ? <button onClick={() => handleToggleRelease(false)} style={{ ...btnAction, borderColor: "#fbbf24", color: "#fbbf24" }}>Ocultar entrega</button>
@@ -883,6 +1090,17 @@ function DeliverySection({ clientId, clientName, showToast }: {
       <p style={{ fontSize: 11, color: "#555", marginTop: 8 }}>
         Os arquivos são lidos da subpasta <code style={{ background: "#111", padding: "1px 6px", borderRadius: 4, color: "#aaa" }}>Entrega/</code> no Google Drive do cliente.
       </p>
+
+      {/* Painel de diagnóstico */}
+      {diagnoseData && (
+        <div style={{ marginTop: 16, padding: "14px 16px", background: "#0a0a0a", border: "1px solid #222", borderRadius: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: "#aaa", margin: 0 }}>Diagnóstico</h3>
+            <button onClick={() => setDiagnoseData(null)} style={{ ...btnSm, fontSize: 11 }}>Fechar</button>
+          </div>
+          <DiagnoseView data={diagnoseData} />
+        </div>
+      )}
 
       {/* Modal de Preview */}
       {showPreview && (

@@ -1672,9 +1672,24 @@ def generate_delivery_zip(client: dict):
         service = get_drive_service()
         entrega_id = _find_delivery_folder(service, folder_id)
         if not entrega_id:
+            # Lista o que realmente existe para ajudar no debug
+            try:
+                q = (
+                    f"'{folder_id}' in parents "
+                    f"and mimeType = 'application/vnd.google-apps.folder' "
+                    f"and trashed = false"
+                )
+                res = service.files().list(
+                    q=q, fields="files(name)",
+                    supportsAllDrives=True, includeItemsFromAllDrives=True, pageSize=50,
+                ).execute()
+                found = [f.get("name") for f in res.get("files", [])]
+            except Exception:
+                found = []
+            subs_msg = ", ".join(found) if found else "(nenhuma)"
             raise RuntimeError(
-                "Pasta 'Entrega' não encontrada no Drive. "
-                "Crie uma subpasta chamada 'Entrega' dentro da pasta do cliente."
+                f"Pasta 'Entrega' não encontrada. Subpastas vistas pelo backend: {subs_msg}. "
+                f"Use o botão 'Diagnosticar' para mais detalhes."
             )
 
         files = _list_delivery_tree(service, entrega_id)
@@ -1835,6 +1850,107 @@ def admin_release_delivery(client_id: int, body: DeliveryReleaseRequest):
         "message": "Entrega liberada!" if body.released else "Entrega ocultada.",
         "released": body.released,
     }
+
+
+@app.get(
+    "/api/admin/clients/{client_id}/delivery/diagnose",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_delivery_diagnose(client_id: int):
+    """
+    Diagnóstico completo: mostra exatamente o que o backend vê no Drive.
+    - Confirma que o novo código de entrega está deployado
+    - Testa acesso da Service Account ao drive_gallery_id
+    - Lista TODAS as subpastas da pasta do cliente (com bytes hex para detectar caracteres invisíveis)
+    - Indica qual (se alguma) bate com o filtro 'entrega'
+    """
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+
+    report: dict = {
+        "backend_version": "delivery-v1",  # muda se redeployar — confirma código novo
+        "client_name": client["name"],
+        "drive_gallery_id": client.get("drive_gallery_id"),
+        "service_account_email": get_service_account_email(),
+        "parent_access": None,
+        "parent_name": None,
+        "subfolders": [],
+        "entrega_match": None,
+        "error": None,
+    }
+
+    folder_id = client.get("drive_gallery_id")
+    if not folder_id:
+        report["error"] = "Cliente sem drive_gallery_id cadastrado."
+        return report
+
+    try:
+        service = get_drive_service()
+    except Exception as e:
+        report["error"] = f"Falha ao autenticar Service Account: {e}"
+        return report
+
+    # 1. Testa acesso à pasta pai
+    try:
+        parent_meta = service.files().get(
+            fileId=folder_id,
+            fields="id, name, mimeType, driveId, parents",
+            supportsAllDrives=True,
+        ).execute()
+        report["parent_access"] = True
+        report["parent_name"] = parent_meta.get("name")
+        report["parent_drive_id"] = parent_meta.get("driveId")
+    except Exception as e:
+        report["parent_access"] = False
+        report["error"] = (
+            f"Service Account não consegue acessar a pasta {folder_id}. "
+            f"Compartilhe como EDITOR com: {report['service_account_email']}. "
+            f"Erro: {e}"
+        )
+        return report
+
+    # 2. Lista TODAS as subpastas diretas
+    try:
+        query = (
+            f"'{folder_id}' in parents "
+            f"and mimeType = 'application/vnd.google-apps.folder' "
+            f"and trashed = false"
+        )
+        results = service.files().list(
+            q=query,
+            fields="files(id, name, parents)",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+            pageSize=500,
+        ).execute()
+        subfolders = results.get("files", [])
+    except Exception as e:
+        report["error"] = f"Erro ao listar subpastas: {e}"
+        return report
+
+    for sf in subfolders:
+        name = sf.get("name") or ""
+        name_lower = name.strip().lower()
+        # Hex dos bytes UTF-8 — revela caracteres invisíveis (BOM, espaços não-quebráveis, etc)
+        name_hex = name.encode("utf-8").hex(" ")
+        is_entrega = name_lower == "entrega"
+        report["subfolders"].append({
+            "id": sf["id"],
+            "name": name,
+            "name_repr": repr(name),
+            "name_bytes_hex": name_hex,
+            "matches_entrega_filter": is_entrega,
+        })
+        if is_entrega and not report["entrega_match"]:
+            report["entrega_match"] = sf["id"]
+
+    # 3. Se não achou, também tenta com match parcial (contém "entrega")
+    if not report["entrega_match"]:
+        partial = [sf for sf in report["subfolders"] if "entrega" in sf["name"].lower()]
+        report["partial_matches"] = partial
+
+    return report
 
 
 @app.get(
