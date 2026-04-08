@@ -10,7 +10,9 @@ import base64
 import secrets
 import string
 import shutil
+import tempfile
 import threading
+import time
 import zipfile
 import requests
 from PIL import Image
@@ -1661,9 +1663,25 @@ def generate_delivery_zip(client: dict):
         "stage": "listing",
         "processed": 0,
         "total": 0,
+        "total_bytes": 0,
+        "bytes_done": 0,
+        "current_file": None,
+        "current_file_bytes": 0,
+        "current_file_total": 0,
+        "started_at": time.time(),
+        "last_tick": time.time(),
         "error": None,
+        "log": [],
     }
     database.update_client(client_id, delivery_status="generating")
+
+    def _log(msg: str):
+        entry = f"[{datetime.now().strftime('%H:%M:%S')}] {msg}"
+        delivery_progress[code]["log"].append(entry)
+        # Mantém só os últimos 60 itens para não estourar memória
+        if len(delivery_progress[code]["log"]) > 60:
+            delivery_progress[code]["log"] = delivery_progress[code]["log"][-60:]
+        print(f"[DELIVERY] {code} {msg}")
 
     try:
         if not folder_id:
@@ -1692,12 +1710,16 @@ def generate_delivery_zip(client: dict):
                 f"Use o botão 'Diagnosticar' para mais detalhes."
             )
 
+        _log("Listando arquivos da pasta Entrega…")
         files = _list_delivery_tree(service, entrega_id)
         if not files:
             raise RuntimeError("Pasta 'Entrega' está vazia ou sem arquivos válidos.")
 
+        total_bytes = sum(f.get("size") or 0 for f in files)
         delivery_progress[code]["total"] = len(files)
+        delivery_progress[code]["total_bytes"] = total_bytes
         delivery_progress[code]["stage"] = "downloading"
+        _log(f"{len(files)} arquivo(s) • {total_bytes/1024/1024:.1f} MB totais")
 
         safe_client = re.sub(r"[^\w\-]", "_", client_name)
         zip_filename = f"Morthe_{safe_client}_Entrega.zip"
@@ -1707,28 +1729,71 @@ def generate_delivery_zip(client: dict):
         if os.path.exists(zip_path):
             os.remove(zip_path)
 
+        # ZIP_STORED + allowZip64 mantém sem recompressão (fotos/videos já comprimidos)
+        # O ZIP é montado streaming arquivo-a-arquivo, cada arquivo vai para disco
+        # em um tempfile primeiro (não carregamos tudo em RAM).
+        CHUNK = 8 * 1024 * 1024  # 8 MB por chunk de download do Drive
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
             for idx, item in enumerate(files, 1):
+                rel_dir = item["rel_dir"] or ""
+                safe_name = _sanitize_filename(item["name"])
+                arcname = f"{rel_dir}/{safe_name}" if rel_dir else safe_name
+                file_total = item.get("size") or 0
+
+                delivery_progress[code]["current_file"] = arcname
+                delivery_progress[code]["current_file_bytes"] = 0
+                delivery_progress[code]["current_file_total"] = file_total
+                _log(f"[{idx}/{len(files)}] ↓ {arcname} ({file_total/1024/1024:.1f} MB)")
+
+                tmp = tempfile.NamedTemporaryFile(
+                    delete=False, dir=DELIVERIES_DIR, suffix=".part"
+                )
+                tmp_path = tmp.name
                 try:
-                    request = service.files().get_media(
-                        fileId=item["id"], supportsAllDrives=True
-                    )
-                    buf = io.BytesIO()
-                    downloader = MediaIoBaseDownload(buf, request)
-                    done = False
-                    while not done:
-                        _, done = downloader.next_chunk()
-                    buf.seek(0)
+                    try:
+                        request = service.files().get_media(
+                            fileId=item["id"], supportsAllDrives=True
+                        )
+                        downloader = MediaIoBaseDownload(tmp, request, chunksize=CHUNK)
+                        done = False
+                        t0 = time.time()
+                        while not done:
+                            status, done = downloader.next_chunk(num_retries=3)
+                            if status is not None:
+                                got = int(status.resumable_progress or 0)
+                                delivery_progress[code]["current_file_bytes"] = got
+                                delivery_progress[code]["last_tick"] = time.time()
+                        tmp.flush()
+                        tmp.close()
+                        got_final = os.path.getsize(tmp_path)
+                        delivery_progress[code]["current_file_bytes"] = got_final
+                        delivery_progress[code]["bytes_done"] += got_final
+                        _log(
+                            f"[{idx}/{len(files)}] ✓ {arcname} "
+                            f"({got_final/1024/1024:.1f} MB em {time.time()-t0:.1f}s)"
+                        )
 
-                    rel_dir = item["rel_dir"] or ""
-                    safe_name = _sanitize_filename(item["name"])
-                    arcname = f"{rel_dir}/{safe_name}" if rel_dir else safe_name
+                        # Escreve no ZIP lendo do tempfile (stream, não carrega em RAM)
+                        zinfo = zipfile.ZipInfo(filename=arcname)
+                        zinfo.compress_type = zipfile.ZIP_STORED
+                        zinfo.file_size = got_final
+                        with open(tmp_path, "rb") as src, zf.open(zinfo, "w", force_zip64=True) as dst:
+                            shutil.copyfileobj(src, dst, length=CHUNK)
+                    except Exception as e:
+                        _log(f"[{idx}/{len(files)}] ✗ FALHOU {arcname}: {e}")
+                finally:
+                    try:
+                        if not tmp.closed:
+                            tmp.close()
+                    except Exception:
+                        pass
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.unlink(tmp_path)
+                    except Exception:
+                        pass
 
-                    zf.writestr(arcname, buf.getvalue())
-                    delivery_progress[code]["processed"] = idx
-                    print(f"[DELIVERY] {code} {idx}/{len(files)} — {arcname}")
-                except Exception as e:
-                    print(f"[DELIVERY ERROR] Arquivo {item['name']} falhou: {e}")
+                delivery_progress[code]["processed"] = idx
 
         zip_size = os.path.getsize(zip_path)
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -1740,11 +1805,12 @@ def generate_delivery_zip(client: dict):
             delivery_status="ready",
         )
         delivery_progress[code]["stage"] = "ready"
-        print(f"[DELIVERY] ZIP pronto: {zip_path} ({zip_size/1024/1024:.1f} MB)")
+        delivery_progress[code]["current_file"] = None
+        _log(f"ZIP pronto: {zip_size/1024/1024:.1f} MB")
 
     except Exception as e:
         err_msg = str(e)
-        print(f"[DELIVERY ERROR] {code}: {err_msg}")
+        _log(f"ERRO: {err_msg}")
         delivery_progress[code]["stage"] = "error"
         delivery_progress[code]["error"] = err_msg
         database.update_client(client_id, delivery_status="error")
@@ -1869,7 +1935,7 @@ def admin_delivery_diagnose(client_id: int):
         raise HTTPException(status_code=404, detail="Cliente não encontrado.")
 
     report: dict = {
-        "backend_version": "delivery-v1",  # muda se redeployar — confirma código novo
+        "backend_version": "delivery-v2",  # muda se redeployar — confirma código novo
         "client_name": client["name"],
         "drive_gallery_id": client.get("drive_gallery_id"),
         "service_account_email": get_service_account_email(),
@@ -1878,6 +1944,9 @@ def admin_delivery_diagnose(client_id: int):
         "subfolders": [],
         "entrega_match": None,
         "error": None,
+        # Estado atual da geração (se houver)
+        "delivery_status": client.get("delivery_status") or "idle",
+        "delivery_progress": delivery_progress.get(client["code"]),
     }
 
     folder_id = client.get("drive_gallery_id")
