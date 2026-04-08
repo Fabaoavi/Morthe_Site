@@ -49,6 +49,24 @@ interface ConfirmModal {
   onConfirm: () => void;
 }
 
+interface DeliveryFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  relDir: string;
+  url: string;
+}
+
+interface DeliveryInfo {
+  released: boolean;
+  message: string | null;
+  files: DeliveryFile[];
+  total?: number;
+  zip_ready: boolean;
+  zip_size: number | null;
+  downloaded?: boolean;
+}
+
 export default function ClientDashboard() {
   const { code } = useParams<{ code: string }>();
   const [info, setInfo] = useState<ClientInfo | null>(null);
@@ -67,6 +85,8 @@ export default function ClientDashboard() {
   const [countdown, setCountdown] = useState(0);
   const [finalizing, setFinalizing] = useState(false);
   const [lightbox, setLightbox] = useState<{ file: DriveFile; idx: number; source: "gallery" | "mood"; moodId?: string } | null>(null);
+  const [delivery, setDelivery] = useState<DeliveryInfo | null>(null);
+  const [deliveryLightbox, setDeliveryLightbox] = useState<{ file: DeliveryFile; idx: number } | null>(null);
   const [confirmModal, setConfirmModal] = useState<ConfirmModal>({
     open: false, title: "", message: "", onConfirm: () => {},
   });
@@ -126,21 +146,26 @@ export default function ClientDashboard() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [infoRes, galleryRes, moodRes, moodsRes] = await Promise.all([
+      const [infoRes, galleryRes, moodRes, moodsRes, deliveryRes] = await Promise.all([
         fetch(`${API}/api/client/info?code=${code}`),
         fetch(`${API}/api/client/gallery?code=${code}`),
         fetch(`${API}/api/client/moodboard?code=${code}`),
         fetch(`${API}/api/client/moods?code=${code}`),
+        fetch(`${API}/api/client/delivery?code=${code}`),
       ]);
       const infoData: ClientInfo = await infoRes.json();
       const galleryData = await galleryRes.json();
       const moodData = await moodRes.json();
       const moodsData = await moodsRes.json();
+      const deliveryData: DeliveryInfo = deliveryRes.ok
+        ? await deliveryRes.json()
+        : { released: false, message: null, files: [], zip_ready: false, zip_size: null };
 
       setInfo(infoData);
       setGallery(galleryData.files || []);
       setMoodboard(moodData.files || []);
       setMoods(moodsData.moods || []);
+      setDelivery(deliveryData);
       setSelectionsCount(infoData.current_selections);
       setMaxSelections(infoData.max_selections);
       setFinalizeInfo(prev => ({ ...prev, finalized: infoData.status === "selection_done" }));
@@ -267,6 +292,15 @@ export default function ClientDashboard() {
     return `${h}:${m}:${ss}`;
   }
 
+  function fmtBytes(bytes: number | null): string {
+    if (!bytes) return "";
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    let i = 0;
+    let n = bytes;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+  }
+
   function thumbSrc(file: DriveFile) {
     if (file.cachedThumbUrl) return `${API}${file.cachedThumbUrl}`;
     // No cached watermarked version — return empty (placeholder shown by UI)
@@ -350,6 +384,98 @@ export default function ClientDashboard() {
         <div style={{ ...s.banner, background: "#1a1a1a", borderColor: "#333", color: "#888" }}>
           {info.notes}
         </div>
+      )}
+
+      {/* ── Entrega (arquivos finais sem watermark) ── */}
+      {delivery?.released && (
+        <section style={{ ...s.section, paddingTop: 8 }}>
+          <div style={{
+            borderRadius: 16,
+            background: "linear-gradient(180deg, rgba(74,222,128,0.08) 0%, rgba(74,222,128,0.02) 100%)",
+            border: "1px solid rgba(74,222,128,0.25)",
+            padding: "24px 22px",
+            marginBottom: 22,
+          }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+              <span style={{
+                fontSize: 10, letterSpacing: "0.2em", fontWeight: 700, color: "#4ade80",
+                textTransform: "uppercase",
+              }}>
+                ● Entrega liberada
+              </span>
+            </div>
+            <h2 style={{ fontSize: 22, fontWeight: 700, color: "#fff", margin: "0 0 10px" }}>
+              Seus arquivos finais estão prontos
+            </h2>
+            {delivery.message && (
+              <p style={{
+                color: "#ccc", fontSize: 14, lineHeight: 1.7, margin: "0 0 18px",
+                whiteSpace: "pre-wrap",
+              }}>
+                {delivery.message}
+              </p>
+            )}
+            {delivery.zip_ready && (
+              <a
+                href={`${API}/api/client/delivery/download?code=${encodeURIComponent(code)}`}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 10,
+                  background: "#fff",
+                  color: "#000",
+                  borderRadius: 10,
+                  padding: "14px 24px",
+                  fontSize: 15,
+                  fontWeight: 700,
+                  textDecoration: "none",
+                  transition: "transform 0.15s, box-shadow 0.15s",
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.transform = "translateY(-1px)"; e.currentTarget.style.boxShadow = "0 8px 30px rgba(255,255,255,0.15)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.transform = "translateY(0)"; e.currentTarget.style.boxShadow = "none"; }}
+              >
+                <span style={{ fontSize: 18 }}>↓</span>
+                Baixar tudo
+                {delivery.zip_size && (
+                  <span style={{ fontSize: 12, fontWeight: 500, color: "#555" }}>
+                    ({fmtBytes(delivery.zip_size)})
+                  </span>
+                )}
+              </a>
+            )}
+            {!delivery.zip_ready && (
+              <p style={{ color: "#888", fontSize: 13 }}>
+                O pacote de download está sendo preparado. Os arquivos abaixo já estão disponíveis para visualização.
+              </p>
+            )}
+          </div>
+
+          {delivery.files.length > 0 && (
+            <div style={s.grid}>
+              {delivery.files.map((f, idx) => (
+                <div
+                  key={f.id}
+                  style={{ ...s.card, cursor: "pointer" }}
+                  onClick={() => setDeliveryLightbox({ file: f, idx })}
+                >
+                  {f.mimeType.startsWith("video/") ? (
+                    <div style={{ ...s.img, display: "flex", alignItems: "center", justifyContent: "center", background: "#111", color: "#555", fontSize: 28 }}>
+                      ▶
+                    </div>
+                  ) : (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img
+                      src={`${API}${f.url}`}
+                      alt={f.name}
+                      style={s.img}
+                      loading="lazy"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       )}
 
       {/* ── Moodboard (referências) ── */}
@@ -546,6 +672,51 @@ export default function ClientDashboard() {
                 {lightbox.file.selected ? "✕ Remover" : "+ Selecionar"}
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Delivery Lightbox ── */}
+      {deliveryLightbox && delivery && (
+        <div style={s.lightboxOverlay} onClick={e => { if (e.target === e.currentTarget) setDeliveryLightbox(null); }}>
+          <button style={s.lightboxClose} onClick={() => setDeliveryLightbox(null)}>✕</button>
+          {deliveryLightbox.idx > 0 && (
+            <button
+              style={{ ...s.lightboxNav, left: 12 }}
+              onClick={() => {
+                const newIdx = deliveryLightbox.idx - 1;
+                setDeliveryLightbox({ file: delivery.files[newIdx], idx: newIdx });
+              }}
+            >‹</button>
+          )}
+          {deliveryLightbox.idx < delivery.files.length - 1 && (
+            <button
+              style={{ ...s.lightboxNav, right: 12 }}
+              onClick={() => {
+                const newIdx = deliveryLightbox.idx + 1;
+                setDeliveryLightbox({ file: delivery.files[newIdx], idx: newIdx });
+              }}
+            >›</button>
+          )}
+
+          {deliveryLightbox.file.mimeType.startsWith("video/") ? (
+            <video
+              src={`${API}${deliveryLightbox.file.url}`}
+              controls
+              autoPlay
+              style={s.lightboxImg}
+            />
+          ) : (
+            /* eslint-disable-next-line @next/next/no-img-element */
+            <img
+              src={`${API}${deliveryLightbox.file.url}`}
+              alt={deliveryLightbox.file.name}
+              style={s.lightboxImg}
+            />
+          )}
+
+          <div style={s.lightboxFooter}>
+            <span style={{ color: "#ccc", fontSize: 14, flex: 1 }}>{deliveryLightbox.file.name}</span>
           </div>
         </div>
       )}

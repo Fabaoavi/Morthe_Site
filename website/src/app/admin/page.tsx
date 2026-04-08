@@ -20,6 +20,31 @@ interface Client {
   selection_locked?: number;
   selection_unlock_count?: number;
   selection_finalized_at?: string | null;
+  delivery_released?: number;
+  delivery_status?: string | null;
+  delivery_message?: string | null;
+  delivery_zip_size?: number | null;
+  delivery_generated_at?: string | null;
+  delivery_downloaded?: number;
+}
+
+interface DeliveryStatus {
+  status: "idle" | "generating" | "ready" | "error";
+  released: boolean;
+  message: string;
+  zip_size: number | null;
+  generated_at: string | null;
+  downloaded: boolean;
+  downloaded_at: string | null;
+  progress: { stage: string; processed: number; total: number; error: string | null } | null;
+}
+
+interface DeliveryPreviewFile {
+  id: string;
+  name: string;
+  mimeType: string;
+  relDir: string;
+  url: string;
 }
 
 interface Selection {
@@ -491,8 +516,11 @@ function ClientDetailView({ client, onSync, onRefresh, onDelete, copy, copied, s
         <button onClick={() => setConfirmDelete(true)} style={{ ...btnAction, borderColor: "#333", color: "#f87171" }}>Remover</button>
       </div>
 
+      {/* Entrega */}
+      <DeliverySection clientId={client.id} clientName={client.name} showToast={showToast} />
+
       {/* Selections */}
-      <div>
+      <div style={{ marginTop: 40 }}>
         <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 14, color: "#888" }}>
           Seleções ({selections.length})
         </h2>
@@ -561,6 +589,396 @@ function Field({ label, children, style }: { label: string; children: React.Reac
       <span style={{ fontSize: 12, color: "#666", fontWeight: 500 }}>{label}</span>
       {children}
     </label>
+  );
+}
+
+// ─── Delivery Section ────────────────────────────────────────────────────────
+
+function formatBytes(bytes: number | null | undefined): string {
+  if (!bytes) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
+}
+
+function DeliverySection({ clientId, clientName, showToast }: {
+  clientId: number;
+  clientName: string;
+  showToast: (msg: string) => void;
+}) {
+  const [delivery, setDelivery] = useState<DeliveryStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [msgDraft, setMsgDraft] = useState("");
+  const [msgSaving, setMsgSaving] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewFiles, setPreviewFiles] = useState<DeliveryPreviewFile[] | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [clearConfirmText, setClearConfirmText] = useState("");
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      const r = await fetch(
+        `${API}/api/admin/clients/${clientId}/delivery/status`,
+        { headers: getAuthHeaders() }
+      );
+      if (r.ok) {
+        const data: DeliveryStatus = await r.json();
+        setDelivery(data);
+        if (!msgSaving) setMsgDraft(data.message || "");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [clientId, msgSaving]);
+
+  useEffect(() => {
+    fetchStatus();
+  }, [fetchStatus]);
+
+  // Polling durante geração
+  useEffect(() => {
+    if (delivery?.status === "generating") {
+      if (!pollRef.current) {
+        pollRef.current = setInterval(fetchStatus, 2000);
+      }
+    } else {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    }
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; } };
+  }, [delivery?.status, fetchStatus]);
+
+  async function handleSaveMessage() {
+    setMsgSaving(true);
+    try {
+      await fetch(`${API}/api/admin/clients/${clientId}/delivery/message`, {
+        method: "PUT",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ message: msgDraft }),
+      });
+      showToast("Mensagem salva.");
+      fetchStatus();
+    } finally {
+      setMsgSaving(false);
+    }
+  }
+
+  async function handleGenerate() {
+    const r = await fetch(
+      `${API}/api/admin/clients/${clientId}/delivery/generate`,
+      { method: "POST", headers: getAuthHeaders() }
+    );
+    if (r.ok) {
+      showToast("Geração iniciada…");
+      fetchStatus();
+    } else {
+      const err = await r.json().catch(() => ({}));
+      showToast(err.detail || "Falha ao iniciar geração.");
+    }
+  }
+
+  async function handleToggleRelease(release: boolean) {
+    const r = await fetch(
+      `${API}/api/admin/clients/${clientId}/delivery/release`,
+      {
+        method: "POST",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ released: release }),
+      }
+    );
+    if (r.ok) {
+      showToast(release ? "Entrega liberada!" : "Entrega ocultada.");
+      fetchStatus();
+    } else {
+      const err = await r.json().catch(() => ({}));
+      showToast(err.detail || "Falha ao alterar estado.");
+    }
+  }
+
+  async function handleClearZip() {
+    if (clearConfirmText !== clientName) {
+      showToast("Digite o nome do cliente corretamente.");
+      return;
+    }
+    const r = await fetch(
+      `${API}/api/admin/clients/${clientId}/delivery/zip`,
+      { method: "DELETE", headers: getAuthHeaders() }
+    );
+    if (r.ok) {
+      showToast("Dados limpos da nuvem.");
+      setConfirmClear(false);
+      setClearConfirmText("");
+      fetchStatus();
+    }
+  }
+
+  async function handleOpenPreview() {
+    setShowPreview(true);
+    setPreviewLoading(true);
+    setPreviewFiles(null);
+    try {
+      const r = await fetch(
+        `${API}/api/admin/clients/${clientId}/delivery/preview`,
+        { headers: getAuthHeaders() }
+      );
+      if (r.ok) {
+        const d = await r.json();
+        setPreviewFiles(d.files || []);
+      } else {
+        setPreviewFiles([]);
+      }
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div style={{ marginTop: 24 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 14, color: "#888" }}>Entrega</h2>
+        <p style={{ fontSize: 13, color: "#555" }}>Carregando…</p>
+      </div>
+    );
+  }
+
+  if (!delivery) return null;
+
+  const statusLabel: Record<string, { label: string; color: string }> = {
+    idle: { label: "Sem entrega gerada", color: "#666" },
+    generating: { label: "Gerando ZIP…", color: "#a78bfa" },
+    ready: { label: "ZIP pronto", color: "#4ade80" },
+    error: { label: "Erro ao gerar", color: "#f87171" },
+  };
+  const st = statusLabel[delivery.status] ?? statusLabel.idle;
+  const progress = delivery.progress;
+  const percent = progress && progress.total > 0
+    ? Math.round((progress.processed / progress.total) * 100)
+    : 0;
+
+  return (
+    <div style={{ marginTop: 40, paddingTop: 32, borderTop: "1px solid #1a1a1a" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}>
+        <h2 style={{ fontSize: 16, fontWeight: 600, color: "#888", margin: 0 }}>Entrega</h2>
+        <span style={{ color: st.color, fontSize: 12, fontWeight: 600, background: "#111", border: "1px solid #222", padding: "3px 10px", borderRadius: 6 }}>
+          {st.label}
+        </span>
+        {delivery.released && (
+          <span style={{ color: "#4ade80", fontSize: 12, fontWeight: 600, background: "#0a1a0f", border: "1px solid #15341c", padding: "3px 10px", borderRadius: 6 }}>
+            Liberada para cliente
+          </span>
+        )}
+      </div>
+
+      {/* Progress bar durante geração */}
+      {delivery.status === "generating" && progress && (
+        <div style={{ marginBottom: 16, padding: "12px 14px", background: "#111", border: "1px solid #1a1a1a", borderRadius: 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#888", marginBottom: 8 }}>
+            <span>{progress.stage === "listing" ? "Listando arquivos…" : progress.stage === "downloading" ? `Baixando ${progress.processed}/${progress.total}` : progress.stage}</span>
+            <span>{percent}%</span>
+          </div>
+          <div style={{ height: 6, background: "#1a1a1a", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ height: "100%", width: `${percent}%`, background: "#a78bfa", transition: "width 0.3s" }} />
+          </div>
+        </div>
+      )}
+
+      {/* Erro */}
+      {delivery.status === "error" && progress?.error && (
+        <div style={{ marginBottom: 16, padding: "12px 14px", background: "#1a0a0a", border: "1px solid #4a1a1a", borderRadius: 10, color: "#f87171", fontSize: 13 }}>
+          {progress.error}
+        </div>
+      )}
+
+      {/* Mensagem personalizada */}
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 12, color: "#666", fontWeight: 500, display: "block", marginBottom: 6 }}>
+          Mensagem para o cliente
+        </label>
+        <textarea
+          value={msgDraft}
+          onChange={e => setMsgDraft(e.target.value)}
+          placeholder="Seus arquivos estão prontos! Obrigado pela parceria..."
+          rows={3}
+          style={{ ...inp, resize: "vertical", minHeight: 80, fontFamily: "inherit" }}
+        />
+        <div style={{ marginTop: 8, display: "flex", justifyContent: "flex-end" }}>
+          <button
+            onClick={handleSaveMessage}
+            disabled={msgSaving || msgDraft === (delivery.message || "")}
+            style={{ ...btnSm, opacity: msgSaving || msgDraft === (delivery.message || "") ? 0.5 : 1 }}
+          >
+            {msgSaving ? "Salvando…" : "Salvar mensagem"}
+          </button>
+        </div>
+      </div>
+
+      {/* Info do ZIP pronto */}
+      {delivery.status === "ready" && (
+        <div style={{ marginBottom: 16, padding: "14px 16px", background: "#0a1a0f", border: "1px solid #15341c", borderRadius: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+            <div>
+              <p style={{ fontSize: 13, color: "#4ade80", fontWeight: 600, marginBottom: 2 }}>
+                ZIP pronto • {formatBytes(delivery.zip_size)}
+              </p>
+              <p style={{ fontSize: 11, color: "#666" }}>
+                Gerado em {delivery.generated_at ? new Date(delivery.generated_at).toLocaleString("pt-BR") : "—"}
+              </p>
+            </div>
+            {delivery.downloaded && (
+              <span style={{ fontSize: 11, color: "#60a5fa", background: "#0f1a2e", border: "1px solid #1a2a4a", padding: "3px 10px", borderRadius: 6 }}>
+                ✓ Baixado pelo cliente
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Ações */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+        <button
+          onClick={handleGenerate}
+          disabled={delivery.status === "generating"}
+          style={{ ...btnAction, borderColor: "#a78bfa", color: "#a78bfa", opacity: delivery.status === "generating" ? 0.5 : 1 }}
+        >
+          {delivery.status === "generating" ? "Gerando…" : delivery.status === "ready" ? "↻ Regenerar ZIP" : "Gerar ZIP"}
+        </button>
+
+        <button
+          onClick={handleOpenPreview}
+          style={{ ...btnAction, borderColor: "#60a5fa", color: "#60a5fa" }}
+        >
+          Preview
+        </button>
+
+        {delivery.status === "ready" && (
+          delivery.released
+            ? <button onClick={() => handleToggleRelease(false)} style={{ ...btnAction, borderColor: "#fbbf24", color: "#fbbf24" }}>Ocultar entrega</button>
+            : <button onClick={() => handleToggleRelease(true)} style={{ ...btnAction, borderColor: "#4ade80", color: "#4ade80" }}>Liberar entrega</button>
+        )}
+
+        {delivery.status === "ready" && (
+          <a
+            href={`${API}/api/client/delivery/download?code=preview`}
+            onClick={(e) => {
+              e.preventDefault();
+              showToast("Download pelo admin não implementado — use o preview.");
+            }}
+            style={{ display: "none" }}
+          >Baixar</a>
+        )}
+
+        {(delivery.status === "ready" || delivery.status === "error") && (
+          <button
+            onClick={() => setConfirmClear(true)}
+            style={{ ...btnAction, borderColor: "#333", color: "#f87171" }}
+          >
+            Limpar dados da nuvem
+          </button>
+        )}
+      </div>
+
+      <p style={{ fontSize: 11, color: "#555", marginTop: 8 }}>
+        Os arquivos são lidos da subpasta <code style={{ background: "#111", padding: "1px 6px", borderRadius: 4, color: "#aaa" }}>Entrega/</code> no Google Drive do cliente.
+      </p>
+
+      {/* Modal de Preview */}
+      {showPreview && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.92)", display: "flex", flexDirection: "column", padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget) setShowPreview(false); }}
+        >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20, maxWidth: 1200, width: "100%", margin: "0 auto 20px" }}>
+            <div>
+              <h2 style={{ color: "#fff", fontSize: 20, fontWeight: 700, margin: 0 }}>Preview da Entrega</h2>
+              <p style={{ color: "#888", fontSize: 12, marginTop: 4 }}>Exatamente o que o cliente verá.</p>
+            </div>
+            <button onClick={() => setShowPreview(false)} style={{ ...btnSm, fontSize: 14 }}>✕ Fechar</button>
+          </div>
+
+          <div style={{ flex: 1, overflowY: "auto", maxWidth: 1200, width: "100%", margin: "0 auto" }}>
+            {delivery.message && (
+              <div style={{ background: "#0f0f0f", border: "1px solid #1a1a1a", borderRadius: 12, padding: "16px 20px", marginBottom: 20 }}>
+                <p style={{ color: "#ccc", fontSize: 14, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{delivery.message}</p>
+              </div>
+            )}
+
+            {previewLoading ? (
+              <p style={{ color: "#666", textAlign: "center", padding: 40 }}>Carregando arquivos…</p>
+            ) : !previewFiles || previewFiles.length === 0 ? (
+              <p style={{ color: "#666", textAlign: "center", padding: 40 }}>
+                Nenhum arquivo visual na pasta Entrega.
+              </p>
+            ) : (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+                {previewFiles.map(f => (
+                  <div key={f.id} style={{ aspectRatio: "1", borderRadius: 10, overflow: "hidden", background: "#111", border: "1px solid #1a1a1a", position: "relative" }}>
+                    {f.mimeType.startsWith("video/") ? (
+                      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#555", fontSize: 32 }}>
+                        ▶
+                      </div>
+                    ) : (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={`${API}${f.url}`}
+                        alt={f.name}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                        loading="lazy"
+                      />
+                    )}
+                    <div style={{ position: "absolute", bottom: 0, left: 0, right: 0, background: "linear-gradient(transparent, rgba(0,0,0,0.85))", padding: "16px 8px 6px" }}>
+                      <p style={{ fontSize: 10, color: "#ccc", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{f.name}</p>
+                      {f.relDir && <p style={{ fontSize: 9, color: "#666" }}>{f.relDir}</p>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Confirmação - Limpar ZIP */}
+      {confirmClear && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(0,0,0,0.9)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}
+          onClick={e => { if (e.target === e.currentTarget) { setConfirmClear(false); setClearConfirmText(""); } }}
+        >
+          <div style={{ background: "#111", border: "1px solid #333", borderRadius: 16, padding: "28px 24px", maxWidth: 420, width: "100%" }}>
+            <h3 style={{ fontSize: 20, fontWeight: 700, marginBottom: 10, color: "#f87171" }}>Limpar dados da nuvem?</h3>
+            <p style={{ color: "#888", fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+              Isso apaga o ZIP pré-gerado do storage da Morthe. A pasta <code style={{ background: "#000", padding: "1px 6px", borderRadius: 4 }}>Entrega/</code> no Google Drive <strong>não é afetada</strong>. Você poderá regerar depois.
+            </p>
+            <p style={{ color: "#666", fontSize: 12, marginBottom: 8 }}>
+              Digite <strong style={{ color: "#ccc" }}>{clientName}</strong> para confirmar:
+            </p>
+            <input
+              value={clearConfirmText}
+              onChange={e => setClearConfirmText(e.target.value)}
+              style={{ ...inp, marginBottom: 16 }}
+              placeholder={clientName}
+            />
+            <div style={{ display: "flex", gap: 10 }}>
+              <button
+                onClick={() => { setConfirmClear(false); setClearConfirmText(""); }}
+                style={{ flex: 1, background: "transparent", border: "1px solid #333", borderRadius: 8, color: "#888", padding: 11, fontSize: 14, cursor: "pointer" }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleClearZip}
+                disabled={clearConfirmText !== clientName}
+                style={{ flex: 1, background: clearConfirmText === clientName ? "#f87171" : "#3a1a1a", border: "none", borderRadius: 8, color: "#fff", padding: 11, fontSize: 14, fontWeight: 700, cursor: clearConfirmText === clientName ? "pointer" : "not-allowed" }}
+              >
+                Limpar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

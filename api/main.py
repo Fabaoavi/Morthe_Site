@@ -11,6 +11,7 @@ import secrets
 import string
 import shutil
 import threading
+import zipfile
 import requests
 from PIL import Image
 from typing import Optional, List
@@ -70,6 +71,12 @@ sync_progress: dict[str, dict] = {}
 SYNC_DIR      = os.path.join(DATA_DIR, "destaques_sync")
 METADATA_FILE = os.path.join(SYNC_DIR, "metadata.json")
 os.makedirs(SYNC_DIR, exist_ok=True)
+
+# Entrega (arquivos finais sem watermark): ZIPs pré-gerados + previews
+DELIVERIES_DIR = os.path.join(DATA_DIR, "deliveries")
+os.makedirs(DELIVERIES_DIR, exist_ok=True)
+# Progress em memória por cliente: {code: {stage, processed, total, error}}
+delivery_progress: dict[str, dict] = {}
 
 
 def find_watermark() -> Optional[str]:
@@ -637,6 +644,16 @@ def delete_client(client_id: int):
     if os.path.exists(cache_dir):
         shutil.rmtree(cache_dir)
         print(f"[CACHE] Pasta de thumbnails removida: {cache_dir}")
+
+    # Remove ZIP de entrega se existir
+    zip_path = existing.get("delivery_zip_path")
+    if zip_path and os.path.exists(zip_path):
+        try:
+            os.remove(zip_path)
+            print(f"[DELIVERY] ZIP removido: {zip_path}")
+        except Exception as e:
+            print(f"[DELIVERY] Falha ao remover ZIP: {e}")
+    delivery_progress.pop(existing["code"], None)
 
     database.delete_client(client_id)
     return {"message": f"Cliente '{existing['name']}' removido com sucesso."}
@@ -1525,6 +1542,546 @@ async def get_destaques(background_tasks: BackgroundTasks):
 
     background_tasks.add_task(perform_sync)
     return data
+
+
+# ─── Entrega (Delivery) ──────────────────────────────────────────────────────
+
+# Extensões de arquivo aceitas na entrega final
+DELIVERY_ALLOWED_MIMES = (
+    "image/",
+    "video/",
+    "application/pdf",
+    "application/postscript",                     # .ai, .eps
+    "application/illustrator",
+    "application/vnd.adobe.photoshop",             # .psd (alguns casos)
+    "image/vnd.adobe.photoshop",                   # .psd
+    "application/octet-stream",                    # fallback p/ PSD/AI sem mime
+)
+DELIVERY_ALLOWED_EXTS = (
+    ".jpg", ".jpeg", ".png", ".webp", ".gif", ".tif", ".tiff",
+    ".mp4", ".mov", ".avi", ".mkv", ".webm",
+    ".psd", ".ai", ".eps", ".pdf",
+)
+
+
+def _is_allowed_delivery_file(name: str, mime: str) -> bool:
+    name_lower = (name or "").lower()
+    if any(name_lower.endswith(ext) for ext in DELIVERY_ALLOWED_EXTS):
+        return True
+    if mime and any(mime.startswith(m) for m in DELIVERY_ALLOWED_MIMES):
+        return True
+    return False
+
+
+def _find_delivery_folder(service, parent_folder_id: str) -> Optional[str]:
+    """
+    Localiza a subpasta 'Entrega' (case-insensitive) dentro da pasta do cliente no Drive.
+    Retorna o folder_id ou None.
+    """
+    query = (
+        f"'{parent_folder_id}' in parents "
+        f"and mimeType = 'application/vnd.google-apps.folder' "
+        f"and trashed = false"
+    )
+    results = service.files().list(
+        q=query,
+        fields="files(id, name)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+        pageSize=200,
+    ).execute()
+    for f in results.get("files", []):
+        if (f.get("name") or "").strip().lower() == "entrega":
+            return f["id"]
+    return None
+
+
+def _list_delivery_tree(service, folder_id: str, rel_path: str = "") -> list[dict]:
+    """
+    Lista recursivamente todos os arquivos dentro da pasta 'Entrega/' no Drive.
+    Retorna lista de dicts: {id, name, mimeType, rel_dir, size}
+    """
+    items: list[dict] = []
+    query = (
+        f"'{folder_id}' in parents "
+        f"and trashed = false"
+    )
+    results = service.files().list(
+        q=query,
+        fields="files(id, name, mimeType, size)",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+        pageSize=500,
+        orderBy="name",
+    ).execute()
+
+    for f in results.get("files", []):
+        mime = f.get("mimeType", "")
+        if mime == "application/vnd.google-apps.folder":
+            # Recursiva: subpasta vira subpasta dentro do ZIP
+            sub_rel = f["name"] if not rel_path else f"{rel_path}/{f['name']}"
+            items.extend(_list_delivery_tree(service, f["id"], sub_rel))
+        else:
+            if _is_allowed_delivery_file(f.get("name", ""), mime):
+                items.append({
+                    "id": f["id"],
+                    "name": f["name"],
+                    "mimeType": mime,
+                    "rel_dir": rel_path,
+                    "size": int(f.get("size") or 0),
+                })
+    return items
+
+
+def _sanitize_filename(name: str) -> str:
+    """Remove caracteres problemáticos para ZIP/filesystem."""
+    return re.sub(r'[<>:"|?*\x00-\x1f]', '_', name).strip() or "arquivo"
+
+
+def generate_delivery_zip(client: dict):
+    """
+    Baixa todos os arquivos da pasta 'Entrega/' do Drive e monta um ZIP organizado.
+    Executa em background thread — atualiza delivery_progress e delivery_status no DB.
+
+    Estrutura do ZIP:
+        Morthe_NomeCliente_Entrega.zip
+        ├── Mood_X/
+        │   ├── foto_001.jpg
+        │   └── ...
+        ├── Videos/
+        │   └── clip_01.mp4
+        └── arquivo_raiz.pdf
+    """
+    code = client["code"]
+    client_id = client["id"]
+    client_name = client["name"]
+    folder_id = client.get("drive_gallery_id")
+
+    delivery_progress[code] = {
+        "stage": "listing",
+        "processed": 0,
+        "total": 0,
+        "error": None,
+    }
+    database.update_client(client_id, delivery_status="generating")
+
+    try:
+        if not folder_id:
+            raise RuntimeError("Cliente sem pasta do Drive configurada.")
+
+        service = get_drive_service()
+        entrega_id = _find_delivery_folder(service, folder_id)
+        if not entrega_id:
+            raise RuntimeError(
+                "Pasta 'Entrega' não encontrada no Drive. "
+                "Crie uma subpasta chamada 'Entrega' dentro da pasta do cliente."
+            )
+
+        files = _list_delivery_tree(service, entrega_id)
+        if not files:
+            raise RuntimeError("Pasta 'Entrega' está vazia ou sem arquivos válidos.")
+
+        delivery_progress[code]["total"] = len(files)
+        delivery_progress[code]["stage"] = "downloading"
+
+        safe_client = re.sub(r"[^\w\-]", "_", client_name)
+        zip_filename = f"Morthe_{safe_client}_Entrega.zip"
+        zip_path = os.path.join(DELIVERIES_DIR, f"{code}.zip")
+
+        # Remove ZIP anterior se existir
+        if os.path.exists(zip_path):
+            os.remove(zip_path)
+
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED, allowZip64=True) as zf:
+            for idx, item in enumerate(files, 1):
+                try:
+                    request = service.files().get_media(
+                        fileId=item["id"], supportsAllDrives=True
+                    )
+                    buf = io.BytesIO()
+                    downloader = MediaIoBaseDownload(buf, request)
+                    done = False
+                    while not done:
+                        _, done = downloader.next_chunk()
+                    buf.seek(0)
+
+                    rel_dir = item["rel_dir"] or ""
+                    safe_name = _sanitize_filename(item["name"])
+                    arcname = f"{rel_dir}/{safe_name}" if rel_dir else safe_name
+
+                    zf.writestr(arcname, buf.getvalue())
+                    delivery_progress[code]["processed"] = idx
+                    print(f"[DELIVERY] {code} {idx}/{len(files)} — {arcname}")
+                except Exception as e:
+                    print(f"[DELIVERY ERROR] Arquivo {item['name']} falhou: {e}")
+
+        zip_size = os.path.getsize(zip_path)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        database.update_client(
+            client_id,
+            delivery_zip_path=zip_path,
+            delivery_zip_size=zip_size,
+            delivery_generated_at=now_iso,
+            delivery_status="ready",
+        )
+        delivery_progress[code]["stage"] = "ready"
+        print(f"[DELIVERY] ZIP pronto: {zip_path} ({zip_size/1024/1024:.1f} MB)")
+
+    except Exception as e:
+        err_msg = str(e)
+        print(f"[DELIVERY ERROR] {code}: {err_msg}")
+        delivery_progress[code]["stage"] = "error"
+        delivery_progress[code]["error"] = err_msg
+        database.update_client(client_id, delivery_status="error")
+
+
+def _delivery_preview_items(service, folder_id: str) -> list[dict]:
+    """
+    Retorna itens da entrega apenas para exibi��ão (preview/galeria do cliente).
+    Só considera imagens e vídeos (ignora PSD/AI/PDF no grid visual).
+    """
+    entrega_id = _find_delivery_folder(service, folder_id)
+    if not entrega_id:
+        return []
+    all_items = _list_delivery_tree(service, entrega_id)
+    preview = []
+    for it in all_items:
+        mime = it.get("mimeType", "")
+        name_lower = it["name"].lower()
+        is_visual = (
+            mime.startswith("image/")
+            or mime.startswith("video/")
+            or any(name_lower.endswith(ext) for ext in (
+                ".jpg", ".jpeg", ".png", ".webp", ".gif",
+                ".mp4", ".mov", ".webm",
+            ))
+        )
+        if is_visual:
+            preview.append(it)
+    return preview
+
+
+# ─── Rotas Admin: Delivery ───────────────────────────────────────────────────
+
+class DeliveryMessageRequest(BaseModel):
+    message: Optional[str] = ""
+
+
+class DeliveryReleaseRequest(BaseModel):
+    released: bool
+
+
+@app.put(
+    "/api/admin/clients/{client_id}/delivery/message",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_update_delivery_message(client_id: int, body: DeliveryMessageRequest):
+    """Atualiza a mensagem personalizada exibida ao cliente na aba Entrega."""
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    database.update_client(client_id, delivery_message=body.message or "")
+    return {"message": "Mensagem atualizada."}
+
+
+@app.post(
+    "/api/admin/clients/{client_id}/delivery/generate",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_generate_delivery(client_id: int):
+    """
+    Dispara a geração do ZIP em background.
+    Lê a pasta 'Entrega/' do Drive, baixa tudo, compacta e salva em DELIVERIES_DIR.
+    """
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    if client.get("delivery_status") == "generating":
+        raise HTTPException(status_code=409, detail="Já existe uma geração em andamento.")
+
+    threading.Thread(
+        target=generate_delivery_zip,
+        args=(client,),
+        daemon=True,
+    ).start()
+
+    return {
+        "message": "Geração iniciada. Acompanhe o progresso.",
+        "status": "generating",
+    }
+
+
+@app.post(
+    "/api/admin/clients/{client_id}/delivery/release",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_release_delivery(client_id: int, body: DeliveryReleaseRequest):
+    """
+    Libera (ou oculta) a aba Entrega para o cliente.
+    Requer que o ZIP já tenha sido gerado (delivery_status = 'ready').
+    """
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+
+    if body.released and client.get("delivery_status") != "ready":
+        raise HTTPException(
+            status_code=400,
+            detail="Gere o ZIP antes de liberar a entrega.",
+        )
+
+    database.update_client(client_id, delivery_released=1 if body.released else 0)
+    return {
+        "message": "Entrega liberada!" if body.released else "Entrega ocultada.",
+        "released": body.released,
+    }
+
+
+@app.get(
+    "/api/admin/clients/{client_id}/delivery/status",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_delivery_status(client_id: int):
+    """Retorna o estado atual da entrega (incluindo progresso se estiver gerando)."""
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+
+    progress = delivery_progress.get(client["code"])
+    return {
+        "status": client.get("delivery_status") or "idle",
+        "released": bool(client.get("delivery_released")),
+        "message": client.get("delivery_message") or "",
+        "zip_size": client.get("delivery_zip_size"),
+        "generated_at": client.get("delivery_generated_at"),
+        "downloaded": bool(client.get("delivery_downloaded")),
+        "downloaded_at": client.get("delivery_downloaded_at"),
+        "progress": progress,
+    }
+
+
+@app.get(
+    "/api/admin/clients/{client_id}/delivery/preview",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_delivery_preview(client_id: int):
+    """
+    Retorna os arquivos visuais (imagens/vídeos) da pasta Entrega para preview no admin.
+    Usa proxy streaming — o admin vê exatamente o que o cliente verá.
+    """
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+    folder_id = client.get("drive_gallery_id")
+    if not folder_id:
+        raise HTTPException(status_code=400, detail="Cliente sem pasta do Drive.")
+
+    try:
+        service = get_drive_service()
+        items = _delivery_preview_items(service, folder_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao ler Drive: {e}")
+
+    files = [
+        {
+            "id": it["id"],
+            "name": it["name"],
+            "mimeType": it["mimeType"],
+            "relDir": it["rel_dir"],
+            "url": f"/api/admin/clients/{client_id}/delivery/file/{it['id']}",
+        }
+        for it in items
+    ]
+    return {"files": files, "total": len(files)}
+
+
+@app.get(
+    "/api/admin/clients/{client_id}/delivery/file/{file_id}",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_delivery_stream_file(client_id: int, file_id: str):
+    """Streaming de arquivo da pasta Entrega (sem watermark) — apenas para admin."""
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+
+    try:
+        service = get_drive_service()
+        meta = service.files().get(
+            fileId=file_id,
+            fields="id, name, mimeType",
+            supportsAllDrives=True,
+        ).execute()
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type=meta.get("mimeType") or "application/octet-stream",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao servir arquivo: {e}")
+
+
+@app.delete(
+    "/api/admin/clients/{client_id}/delivery/zip",
+    dependencies=[Depends(verify_admin)],
+)
+def admin_clear_delivery_zip(client_id: int):
+    """
+    Apaga o ZIP pré-gerado da nuvem (Railway storage).
+    Reseta status para 'idle' e oculta a entrega do cliente automaticamente.
+    """
+    client = database.get_client_by_id(client_id)
+    if not client:
+        raise HTTPException(status_code=404, detail="Cliente não encontrado.")
+
+    zip_path = client.get("delivery_zip_path")
+    deleted = False
+    if zip_path and os.path.exists(zip_path):
+        try:
+            os.remove(zip_path)
+            deleted = True
+            print(f"[DELIVERY] ZIP apagado: {zip_path}")
+        except Exception as e:
+            print(f"[DELIVERY] Erro ao apagar ZIP: {e}")
+
+    database.update_client(
+        client_id,
+        delivery_zip_path=None,
+        delivery_zip_size=None,
+        delivery_generated_at=None,
+        delivery_status="idle",
+        delivery_released=0,
+        delivery_downloaded=0,
+        delivery_downloaded_at=None,
+    )
+    delivery_progress.pop(client["code"], None)
+
+    return {
+        "message": "ZIP removido da nuvem." if deleted else "Nada para apagar.",
+        "deleted": deleted,
+    }
+
+
+# ─── Rotas Cliente: Delivery ─────────────────────────────────────────────────
+
+@app.get("/api/client/delivery")
+def client_delivery_info(code: str = Query(...)):
+    """
+    Retorna dados da aba Entrega do cliente.
+    Só expõe arquivos se delivery_released = true.
+    """
+    client = get_client_or_404(code)
+
+    if not client.get("delivery_released"):
+        return {
+            "released": False,
+            "message": None,
+            "files": [],
+            "zip_ready": False,
+            "zip_size": None,
+        }
+
+    # Lista arquivos visuais para o grid
+    files: list[dict] = []
+    try:
+        service = get_drive_service()
+        folder_id = client.get("drive_gallery_id")
+        if folder_id:
+            items = _delivery_preview_items(service, folder_id)
+            files = [
+                {
+                    "id": it["id"],
+                    "name": it["name"],
+                    "mimeType": it["mimeType"],
+                    "relDir": it["rel_dir"],
+                    "url": f"/api/client/delivery/file/{it['id']}?code={code}",
+                }
+                for it in items
+            ]
+    except Exception as e:
+        print(f"[DELIVERY] Erro ao listar preview para '{code}': {e}")
+
+    zip_path = client.get("delivery_zip_path")
+    zip_ready = bool(zip_path and os.path.exists(zip_path))
+
+    return {
+        "released": True,
+        "message": client.get("delivery_message") or "",
+        "files": files,
+        "total": len(files),
+        "zip_ready": zip_ready,
+        "zip_size": client.get("delivery_zip_size"),
+        "downloaded": bool(client.get("delivery_downloaded")),
+    }
+
+
+@app.get("/api/client/delivery/file/{file_id}")
+def client_delivery_stream_file(file_id: str, code: str = Query(...)):
+    """
+    Streaming de arquivo da Entrega (sem watermark).
+    Só funciona se delivery_released = true para aquele cliente.
+    """
+    client = get_client_or_404(code)
+    if not client.get("delivery_released"):
+        raise HTTPException(status_code=403, detail="Entrega ainda não liberada.")
+
+    try:
+        service = get_drive_service()
+        meta = service.files().get(
+            fileId=file_id,
+            fields="id, name, mimeType",
+            supportsAllDrives=True,
+        ).execute()
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
+        buf = io.BytesIO()
+        downloader = MediaIoBaseDownload(buf, request)
+        done = False
+        while not done:
+            _, done = downloader.next_chunk()
+        buf.seek(0)
+        return StreamingResponse(
+            buf,
+            media_type=meta.get("mimeType") or "application/octet-stream",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erro ao servir arquivo: {e}")
+
+
+@app.get("/api/client/delivery/download")
+def client_delivery_download(code: str = Query(...)):
+    """
+    Baixa o ZIP completo da entrega.
+    Marca delivery_downloaded = true na primeira vez que for baixado.
+    """
+    client = get_client_or_404(code)
+    if not client.get("delivery_released"):
+        raise HTTPException(status_code=403, detail="Entrega ainda não liberada.")
+
+    zip_path = client.get("delivery_zip_path")
+    if not zip_path or not os.path.exists(zip_path):
+        raise HTTPException(status_code=404, detail="Arquivo de entrega não disponível.")
+
+    # Marca como baixado (só na primeira vez)
+    if not client.get("delivery_downloaded"):
+        database.update_client(
+            client["id"],
+            delivery_downloaded=1,
+            delivery_downloaded_at=datetime.now(timezone.utc).isoformat(),
+        )
+
+    safe_client = re.sub(r"[^\w\-]", "_", client["name"])
+    filename = f"Morthe_{safe_client}_Entrega.zip"
+    return FileResponse(
+        zip_path,
+        media_type="application/zip",
+        filename=filename,
+    )
 
 
 # ─── Entrypoint ──────────────────────────────────────────────────────────────

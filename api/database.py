@@ -62,6 +62,15 @@ def _migrate(conn: sqlite3.Connection):
         ("selection_finalized_at",  "TEXT"),
         ("selection_unlock_count",  "INTEGER DEFAULT 0"),
         ("selection_locked",        "INTEGER DEFAULT 0"),
+        # Delivery (entrega final sem watermark)
+        ("delivery_released",       "INTEGER DEFAULT 0"),
+        ("delivery_message",        "TEXT"),
+        ("delivery_zip_path",       "TEXT"),
+        ("delivery_zip_size",       "INTEGER"),
+        ("delivery_generated_at",   "TEXT"),
+        ("delivery_status",         "TEXT DEFAULT 'idle'"),
+        ("delivery_downloaded",     "INTEGER DEFAULT 0"),
+        ("delivery_downloaded_at",  "TEXT"),
     ]
     for col, col_type in migrations:
         if col not in existing:
@@ -148,6 +157,9 @@ def update_client(client_id: int, **kwargs) -> Optional[dict]:
         "name", "drive_gallery_url", "drive_gallery_id",
         "session_date", "max_selections", "status", "notes",
         "selection_finalized_at", "selection_unlock_count", "selection_locked",
+        "delivery_released", "delivery_message", "delivery_zip_path",
+        "delivery_zip_size", "delivery_generated_at", "delivery_status",
+        "delivery_downloaded", "delivery_downloaded_at",
     }
     fields = {k: v for k, v in kwargs.items() if k in allowed}
     if not fields:
