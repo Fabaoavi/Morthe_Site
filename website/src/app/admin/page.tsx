@@ -255,7 +255,6 @@ export default function AdminDashboard() {
           {view === "new" && <NewClientView onCreated={() => { fetchClients(); setView("dashboard"); showToast("Cliente criado com sucesso!"); }} />}
           {view === "client" && selectedClient && (
             <ClientDetailView
-              key={selectedClient.id}
               client={selectedClient}
               onSync={() => handleSync(selectedClient.id)}
               onRefresh={fetchClients}
@@ -612,21 +611,6 @@ type DiagnoseSubfolder = {
   matches_entrega_filter?: boolean;
 };
 
-type DeliveryProgressPayload = {
-  stage?: string;
-  processed?: number;
-  total?: number;
-  total_bytes?: number;
-  bytes_done?: number;
-  current_file?: string | null;
-  current_file_bytes?: number;
-  current_file_total?: number;
-  started_at?: number;
-  last_tick?: number;
-  error?: string | null;
-  log?: string[];
-};
-
 function DiagnoseView({ data }: { data: Record<string, unknown> }) {
   const get = <T,>(k: string): T | undefined => data[k] as T | undefined;
   const backendVersion = get<string>("backend_version");
@@ -640,8 +624,6 @@ function DiagnoseView({ data }: { data: Record<string, unknown> }) {
   const entregaMatch = get<string | null>("entrega_match");
   const partialMatches = get<DiagnoseSubfolder[]>("partial_matches") ?? [];
   const error = get<string | null>("error");
-  const deliveryStatus = get<string>("delivery_status");
-  const progress = get<DeliveryProgressPayload | null>("delivery_progress");
 
   const row: React.CSSProperties = { display: "flex", gap: 10, fontSize: 12, padding: "4px 0", borderBottom: "1px dashed #1a1a1a" };
   const lbl: React.CSSProperties = { color: "#666", minWidth: 150, flexShrink: 0 };
@@ -658,108 +640,6 @@ function DiagnoseView({ data }: { data: Record<string, unknown> }) {
       {backendVersion && (
         <div style={{ marginBottom: 10, padding: "6px 10px", background: "#0f1a2e", border: "1px solid #1a2a4a", borderRadius: 6, color: "#60a5fa", fontFamily: "ui-monospace, monospace" }}>
           backend_version: {backendVersion}
-        </div>
-      )}
-
-      {/* Bloco de progresso ao vivo */}
-      {progress && (
-        <div style={{ marginBottom: 12, padding: "10px 12px", background: "#0a1525", border: "1px solid #1a2e4a", borderRadius: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ color: "#60a5fa", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.5 }}>
-              Progresso ao vivo
-            </span>
-            <span style={{ color: "#888", fontSize: 11 }}>
-              stage: {progress.stage ?? "—"} • status: {deliveryStatus ?? "—"}
-            </span>
-          </div>
-
-          {typeof progress.total === "number" && progress.total > 0 && (
-            <>
-              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#aaa", marginBottom: 4 }}>
-                <span>Arquivos: {progress.processed ?? 0} / {progress.total}</span>
-                {typeof progress.total_bytes === "number" && progress.total_bytes > 0 && (
-                  <span>
-                    Bytes: {formatBytes(progress.bytes_done ?? 0)} / {formatBytes(progress.total_bytes)}
-                  </span>
-                )}
-              </div>
-              <div style={{ height: 5, background: "#0a0a0a", borderRadius: 3, overflow: "hidden", marginBottom: 8 }}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${Math.round(((progress.processed ?? 0) / (progress.total || 1)) * 100)}%`,
-                    background: "#60a5fa",
-                    transition: "width 0.3s",
-                  }}
-                />
-              </div>
-            </>
-          )}
-
-          {progress.current_file && (
-            <div style={{ fontSize: 11, color: "#ccc", marginBottom: 6 }}>
-              <div style={{ color: "#888", marginBottom: 2 }}>Baixando agora:</div>
-              <div style={{ fontFamily: "ui-monospace, monospace", color: "#fbbf24", wordBreak: "break-all" }}>
-                {progress.current_file}
-              </div>
-              {typeof progress.current_file_total === "number" && progress.current_file_total > 0 && (
-                <div style={{ marginTop: 4 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 10, color: "#888" }}>
-                    <span>{formatBytes(progress.current_file_bytes ?? 0)} / {formatBytes(progress.current_file_total)}</span>
-                    <span>{Math.round(((progress.current_file_bytes ?? 0) / (progress.current_file_total || 1)) * 100)}%</span>
-                  </div>
-                  <div style={{ height: 3, background: "#0a0a0a", borderRadius: 2, overflow: "hidden", marginTop: 2 }}>
-                    <div
-                      style={{
-                        height: "100%",
-                        width: `${Math.round(((progress.current_file_bytes ?? 0) / (progress.current_file_total || 1)) * 100)}%`,
-                        background: "#fbbf24",
-                      }}
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {progress.error && (
-            <div style={{ marginTop: 8, color: "#f87171", fontSize: 11 }}>
-              Erro: {progress.error}
-            </div>
-          )}
-
-          {progress.log && progress.log.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <div style={{ color: "#666", fontSize: 10, marginBottom: 4 }}>Log ({progress.log.length}):</div>
-              <div style={{
-                maxHeight: 180,
-                overflow: "auto",
-                background: "#000",
-                border: "1px solid #111",
-                borderRadius: 4,
-                padding: 8,
-                fontSize: 10,
-                fontFamily: "ui-monospace, monospace",
-                color: "#9ca3af",
-                display: "flex",
-                flexDirection: "column-reverse",
-              }}>
-                {[...progress.log].reverse().map((line, i) => (
-                  <div key={i} style={{
-                    color: line.includes("ERRO") || line.includes("✗")
-                      ? "#f87171"
-                      : line.includes("✓") || line.includes("pronto")
-                        ? "#4ade80"
-                        : line.includes("↓")
-                          ? "#fbbf24"
-                          : "#9ca3af"
-                  }}>
-                    {line}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -914,9 +794,7 @@ function DeliverySection({ clientId, clientName, showToast }: {
   const [clearConfirmText, setClearConfirmText] = useState("");
   const [diagnoseData, setDiagnoseData] = useState<Record<string, unknown> | null>(null);
   const [diagnoseLoading, setDiagnoseLoading] = useState(false);
-  const [diagnoseOpen, setDiagnoseOpen] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const diagnosePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -1014,7 +892,9 @@ function DeliverySection({ clientId, clientName, showToast }: {
     }
   }
 
-  const fetchDiagnose = useCallback(async () => {
+  async function handleDiagnose() {
+    setDiagnoseLoading(true);
+    setDiagnoseData(null);
     try {
       const r = await fetch(
         `${API}/api/admin/clients/${clientId}/delivery/diagnose`,
@@ -1029,58 +909,10 @@ function DeliverySection({ clientId, clientName, showToast }: {
       }
     } catch (e) {
       setDiagnoseData({ error: String(e) });
-    }
-  }, [clientId]);
-
-  async function handleDiagnose() {
-    setDiagnoseLoading(true);
-    setDiagnoseOpen(true);
-    try {
-      await fetchDiagnose();
     } finally {
       setDiagnoseLoading(false);
     }
   }
-
-  // Atalho: Ctrl+Shift+D abre/fecha o painel de diagnóstico
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.shiftKey && (e.key === "D" || e.key === "d")) {
-        e.preventDefault();
-        setDiagnoseOpen(prev => {
-          const next = !prev;
-          if (next) {
-            setDiagnoseLoading(true);
-            fetchDiagnose().finally(() => setDiagnoseLoading(false));
-          }
-          return next;
-        });
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [fetchDiagnose]);
-
-  // Polling do diagnose enquanto está aberto E existe uma geração em andamento
-  useEffect(() => {
-    const isGenerating = delivery?.status === "generating";
-    if (diagnoseOpen && isGenerating) {
-      if (!diagnosePollRef.current) {
-        diagnosePollRef.current = setInterval(fetchDiagnose, 1500);
-      }
-    } else {
-      if (diagnosePollRef.current) {
-        clearInterval(diagnosePollRef.current);
-        diagnosePollRef.current = null;
-      }
-    }
-    return () => {
-      if (diagnosePollRef.current) {
-        clearInterval(diagnosePollRef.current);
-        diagnosePollRef.current = null;
-      }
-    };
-  }, [diagnoseOpen, delivery?.status, fetchDiagnose]);
 
   async function handleOpenPreview() {
     setShowPreview(true);
@@ -1220,6 +1052,14 @@ function DeliverySection({ clientId, clientName, showToast }: {
           Preview
         </button>
 
+        <button
+          onClick={handleDiagnose}
+          disabled={diagnoseLoading}
+          style={{ ...btnAction, borderColor: "#888", color: "#aaa" }}
+        >
+          {diagnoseLoading ? "Diagnosticando…" : "Diagnosticar"}
+        </button>
+
         {delivery.status === "ready" && (
           delivery.released
             ? <button onClick={() => handleToggleRelease(false)} style={{ ...btnAction, borderColor: "#fbbf24", color: "#fbbf24" }}>Ocultar entrega</button>
@@ -1249,25 +1089,16 @@ function DeliverySection({ clientId, clientName, showToast }: {
 
       <p style={{ fontSize: 11, color: "#555", marginTop: 8 }}>
         Os arquivos são lidos da subpasta <code style={{ background: "#111", padding: "1px 6px", borderRadius: 4, color: "#aaa" }}>Entrega/</code> no Google Drive do cliente.
-        {" "}<span style={{ color: "#333" }}>•</span> <span style={{ color: "#444" }}>Diagnóstico: <kbd style={{ background: "#0a0a0a", border: "1px solid #222", borderRadius: 3, padding: "1px 5px", fontSize: 10, color: "#666" }}>Ctrl</kbd> + <kbd style={{ background: "#0a0a0a", border: "1px solid #222", borderRadius: 3, padding: "1px 5px", fontSize: 10, color: "#666" }}>Shift</kbd> + <kbd style={{ background: "#0a0a0a", border: "1px solid #222", borderRadius: 3, padding: "1px 5px", fontSize: 10, color: "#666" }}>D</kbd></span>
       </p>
 
-      {/* Painel de diagnóstico (oculto por padrão — abre com Ctrl+Shift+D) */}
-      {diagnoseOpen && (
+      {/* Painel de diagnóstico */}
+      {diagnoseData && (
         <div style={{ marginTop: 16, padding: "14px 16px", background: "#0a0a0a", border: "1px solid #222", borderRadius: 10 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
-            <h3 style={{ fontSize: 13, fontWeight: 600, color: "#aaa", margin: 0 }}>
-              Diagnóstico {diagnoseLoading && <span style={{ color: "#555" }}>atualizando…</span>}
-            </h3>
-            <div style={{ display: "flex", gap: 6 }}>
-              <button onClick={() => fetchDiagnose()} style={{ ...btnSm, fontSize: 11 }}>↻</button>
-              <button onClick={() => { setDiagnoseOpen(false); }} style={{ ...btnSm, fontSize: 11 }}>Fechar</button>
-            </div>
+            <h3 style={{ fontSize: 13, fontWeight: 600, color: "#aaa", margin: 0 }}>Diagnóstico</h3>
+            <button onClick={() => setDiagnoseData(null)} style={{ ...btnSm, fontSize: 11 }}>Fechar</button>
           </div>
-          {diagnoseData
-            ? <DiagnoseView data={diagnoseData} />
-            : <p style={{ fontSize: 12, color: "#555" }}>Carregando…</p>
-          }
+          <DiagnoseView data={diagnoseData} />
         </div>
       )}
 
