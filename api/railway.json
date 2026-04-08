@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "uvicorn main:app --host 0.0.0.0 --port $PORT",
+    "startCommand": "bash -lc 'echo \"=== DISK USAGE ===\" && df -h \"${DATA_DIR:-/data}\" 2>&1 || true; echo \"=== /data BREAKDOWN ===\" && du -sh \"${DATA_DIR:-/data}\"/* 2>/dev/null | sort -h || true; echo \"=== CLEANUP TEMPFILES ===\" && find \"${DATA_DIR:-/data}/deliveries\" -name \"*.part\" -delete 2>/dev/null && find \"${DATA_DIR:-/data}\" -name \"*.tmp\" -delete 2>/dev/null && echo \"cleanup ok\" || true; echo \"=== STARTING UVICORN ===\" && exec uvicorn main:app --host 0.0.0.0 --port $PORT'",
     "healthcheckPath": "/docs",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3

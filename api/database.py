@@ -3,17 +3,50 @@ database.py — Módulo SQLite para gerenciamento de clientes e seleções.
 """
 import sqlite3
 import os
+import shutil
 from typing import Optional
 
 _DATA_DIR = os.environ.get("DATA_DIR", os.path.dirname(__file__))
 DB_PATH = os.path.join(_DATA_DIR, "morthe.db")
 
 
+def _disk_report() -> str:
+    """Relatório curto de uso do volume — usado em mensagens de erro."""
+    try:
+        usage = shutil.disk_usage(_DATA_DIR)
+        free_mb = usage.free / (1024 * 1024)
+        used_pct = (usage.used / usage.total) * 100 if usage.total else 0
+        return (
+            f"data_dir={_DATA_DIR} "
+            f"free={free_mb:.1f}MB used={used_pct:.1f}% "
+            f"total={usage.total/(1024*1024):.0f}MB"
+        )
+    except Exception as e:
+        return f"data_dir={_DATA_DIR} (disk_usage failed: {e})"
+
+
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        conn.row_factory = sqlite3.Row
+        # Tenta WAL — se falhar (disco cheio/readonly), cai para o modo padrão
+        try:
+            conn.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.OperationalError as e:
+            # Loga o estado real do volume e re-lança com contexto
+            report = _disk_report()
+            raise sqlite3.OperationalError(
+                f"PRAGMA journal_mode=WAL falhou ({e}). "
+                f"Provável volume cheio/read-only. {report}"
+            ) from e
+        return conn
+    except sqlite3.OperationalError as e:
+        # Erro abrindo o banco em si — também enriquece a mensagem
+        if "disk" in str(e).lower() or "i/o" in str(e).lower():
+            raise sqlite3.OperationalError(
+                f"sqlite3.connect falhou ({e}). {_disk_report()}"
+            ) from e
+        raise
 
 
 def init_db():
