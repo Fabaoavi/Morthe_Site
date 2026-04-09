@@ -4,7 +4,7 @@
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "bash -lc 'D=\"${DATA_DIR:-/data}\"; echo \"=== DISK BEFORE ===\"; df -h \"$D\" 2>&1 || true; DEV=$(df \"$D\" --output=source 2>/dev/null | tail -1); echo \"device=$DEV\"; lsblk \"$DEV\" 2>&1 | tail -5 || true; echo \"=== RESIZE2FS ATTEMPT ===\"; if ! command -v resize2fs >/dev/null 2>&1; then echo \"resize2fs nao encontrado, tentando instalar e2fsprogs...\"; (apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq e2fsprogs >/dev/null 2>&1) && echo \"instalado\" || echo \"instalacao falhou (provavel falta de root)\"; fi; if command -v resize2fs >/dev/null 2>&1 && [ -n \"$DEV\" ]; then echo \"--- e2fsck ---\"; e2fsck -f -y \"$DEV\" 2>&1 | tail -20 || true; echo \"--- resize2fs ---\"; resize2fs \"$DEV\" 2>&1 || echo \"(resize2fs exit $?)\"; else echo \"(resize2fs indisponivel ou sem device)\"; fi; echo \"=== DISK AFTER RESIZE ===\"; df -h \"$D\" 2>&1 || true; echo \"=== CLEANUP TEMPFILES ===\"; find \"$D/deliveries\" -name \"*.part\" -delete 2>/dev/null; find \"$D\" -name \"*.tmp\" -delete 2>/dev/null; echo \"cleanup ok\"; if [ \"${MORTHE_PURGE_DELIVERIES:-0}\" = \"1\" ]; then echo \"=== PURGE DELIVERIES ===\"; find \"$D/deliveries\" -type f -delete 2>/dev/null; echo \"purge done\"; fi; echo \"=== STARTING UVICORN ===\"; exec uvicorn main:app --host 0.0.0.0 --port $PORT'",
+    "startCommand": "bash -lc 'D=\"${DATA_DIR:-/data}\"; find \"$D/deliveries\" -name \"*.part\" -delete 2>/dev/null; find \"$D\" -name \"*.tmp\" -delete 2>/dev/null; df -h \"$D\" 2>&1 || true; exec uvicorn main:app --host 0.0.0.0 --port $PORT'",
     "healthcheckPath": "/docs",
     "restartPolicyType": "ON_FAILURE",
     "restartPolicyMaxRetries": 3
